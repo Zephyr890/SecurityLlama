@@ -68,6 +68,7 @@ class OllamaClient:
     def _post_chat(self, messages: list[dict[str, str]]) -> str:
         body: dict[str, Any] = {
             "model": self.config.ollama.model,
+            "think": self.config.ollama.think,
             "stream": False,
             "format": AssistantResponse.model_json_schema(),
             "messages": messages,

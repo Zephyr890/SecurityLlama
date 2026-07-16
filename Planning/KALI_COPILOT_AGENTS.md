@@ -2,7 +2,7 @@
 
 ## Mission
 
-Build and maintain `kali-copilot`, a portable terminal copilot for authorized security testing in Kali Linux virtual machines. The human operator retains an ordinary, unrestricted shell. The application may capture bounded terminal context, ask a configured Ollama model for analysis, and insert a proposed command into the editable shell buffer. It must never execute a model-generated command automatically.
+Build and maintain `securityllama`, a portable terminal copilot for authorized security testing in Kali Linux virtual machines. The human operator retains an ordinary, unrestricted shell. The application may capture bounded terminal context, ask a configured Ollama model for analysis, and insert a proposed command into the editable shell buffer. It must never execute a model-generated command automatically.
 
 ## Source of truth
 

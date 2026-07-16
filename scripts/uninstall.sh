@@ -13,12 +13,12 @@ while (($#)); do
   esac
 done
 
-kali-copilot uninstall-shell
+securityllama uninstall-shell
 
-config_home=${KALI_COPILOT_CONFIG_HOME:-${XDG_CONFIG_HOME:-$HOME/.config}/kali-copilot}
-data_home=${KALI_COPILOT_DATA_HOME:-${XDG_DATA_HOME:-$HOME/.local/share}/kali-copilot}
+config_home=${SECURITYLLAMA_CONFIG_HOME:-${XDG_CONFIG_HOME:-$HOME/.config}/securityllama}
+data_home=${SECURITYLLAMA_DATA_HOME:-${XDG_DATA_HOME:-$HOME/.local/share}/securityllama}
 rm -rf -- "$config_home/shell"
-if command -v pipx >/dev/null 2>&1; then pipx uninstall kali-copilot || true; fi
+if command -v pipx >/dev/null 2>&1; then pipx uninstall securityllama || true; fi
 
 if [[ $purge == true ]]; then
   if [[ $non_interactive == true && $confirm_purge != true ]]; then

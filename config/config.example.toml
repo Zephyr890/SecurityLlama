@@ -2,6 +2,8 @@
 [ollama]
 base_url = "http://127.0.0.1:11434"
 model = "qwen2.5-coder:3b"
+# Qwen3 thinking adds latency; enable only when deeper reasoning is needed.
+think = false
 connect_timeout_seconds = 3.0
 response_timeout_seconds = 120.0
 num_ctx = 4096

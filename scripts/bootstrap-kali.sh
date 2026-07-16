@@ -46,6 +46,9 @@ if ! command -v pipx >/dev/null 2>&1; then
   exit 2
 fi
 
+# Remove the pre-rename package if this is an upgrade from kali-copilot.
+pipx uninstall kali-copilot >/dev/null 2>&1 || true
+
 install_args=(install --force)
 if [[ $dev == true ]]; then install_args+=(--editable); fi
 pipx "${install_args[@]}" "$repo_root"
@@ -54,17 +57,17 @@ export PATH="$HOME/.local/bin:$PATH"
 config_args=(config init)
 [[ -n $ollama_url ]] && config_args+=(--ollama-url "$ollama_url")
 [[ -n $model ]] && config_args+=(--model "$model")
-kali-copilot "${config_args[@]}"
+securityllama "${config_args[@]}"
 if [[ -n $scope ]]; then
-  if ! kali-copilot scope show "$scope" >/dev/null 2>&1; then
-    kali-copilot scope init "$scope"
+  if ! securityllama scope show "$scope" >/dev/null 2>&1; then
+    securityllama scope init "$scope"
     printf 'Scope %s was created unauthorized; edit it before enabling network insertion.\n' "$scope"
   fi
-  kali-copilot scope use "$scope"
+  securityllama scope use "$scope"
 fi
-kali-copilot install-shell
-kali-copilot doctor
+securityllama install-shell
+securityllama doctor
 
 printf '%s\n' 'Next steps:'
 printf '  exec %s -l\n' "${SHELL:-zsh}"
-printf '%s\n' '  tmux new -s assessment' '  kali-copilot doctor'
+printf '%s\n' '  tmux new -s assessment' '  securityllama doctor'

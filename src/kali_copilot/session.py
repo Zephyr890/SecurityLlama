@@ -39,7 +39,7 @@ def new_session(paths: AppPaths | None = None) -> SessionState:
 
 def current_session(paths: AppPaths | None = None) -> SessionState:
     resolved = paths or resolve_paths()
-    explicit = os.environ.get("KALI_COPILOT_SESSION")
+    explicit = os.environ.get("SECURITYLLAMA_SESSION")
     if explicit:
         return SessionState(explicit)
     path = _state_path(resolved)

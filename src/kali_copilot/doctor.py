@@ -39,7 +39,7 @@ def run_doctor() -> list[DoctorCheck]:
             DoctorCheck(
                 "configuration",
                 False,
-                f"missing {paths.config_file}; run `kali-copilot config init`",
+                f"missing {paths.config_file}; run `securityllama config init`",
             )
         )
         return checks
@@ -47,7 +47,9 @@ def run_doctor() -> list[DoctorCheck]:
         config = load_config(paths)
         checks.append(DoctorCheck("configuration", True, f"valid: {paths.config_file}"))
     except ConfigError as exc:
-        checks.append(DoctorCheck("configuration", False, f"run `kali-copilot config init`: {exc}"))
+        checks.append(
+            DoctorCheck("configuration", False, f"run `securityllama config init`: {exc}")
+        )
         return checks
     private = all(_private(path) for path in (paths.config_dir, paths.data_dir, paths.runtime_dir))
     checks.append(
@@ -56,7 +58,7 @@ def run_doctor() -> list[DoctorCheck]:
             private,
             "private directories are owner-only"
             if private
-            else "run chmod 700 on kali-copilot private directories",
+            else "run chmod 700 on securityllama private directories",
         )
     )
     checks.append(
@@ -75,7 +77,7 @@ def run_doctor() -> list[DoctorCheck]:
         DoctorCheck(
             "shell integration",
             sourced,
-            "managed block found" if sourced else "run `kali-copilot install-shell`",
+            "managed block found" if sourced else "run `securityllama install-shell`",
         )
     )
     client = OllamaClient(config)

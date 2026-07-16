@@ -10,14 +10,14 @@ The operator's shell remains an ordinary shell with normal command-line access. 
 
 The user-visible proof is this sequence:
 
-    git clone <repository-url> ~/src/kali-copilot
-    cd ~/src/kali-copilot
+    git clone <repository-url> ~/src/securityllama
+    cd ~/src/securityllama
     ./scripts/bootstrap-kali.sh \
       --ollama-url http://127.0.0.1:11434 \
       --model qwen2.5-coder:3b
     exec zsh
     tmux new -s assessment
-    kali-copilot doctor
+    securityllama doctor
 
 At a zsh or Bash prompt inside tmux, pressing Alt-A opens a popup. The popup shows which context was captured and whether anything was redacted. The operator chooses `Explain`, asks a question about the recent output, and sees a structured answer. If the response contains a proposed command, pressing `i` returns that command to the editable shell buffer. The command is visible at the prompt and has not run.
 
@@ -48,6 +48,16 @@ A second tmux binding, Prefix then A, opens a read-only popup even when the curr
   operator/security documentation, clean-wheel installation, and an explicit
   manual VirtualBox/Kali acceptance procedure. Interactive VM results remain
   unverified and are clearly separated from automated evidence.
+- [x] (2026-07-16) Follow-up: made Ollama thinking behavior explicit and
+  configurable, defaulting to disabled for responsive CPU-only Kali/host
+  workflows; the request contract is covered by a unit test.
+- [x] (2026-07-16) Follow-up: renamed the public project, executable, shell
+  integration, configuration paths, environment variables, and documentation
+  to `securityllama`; the internal Python import package remains
+  `kali_copilot` for compatibility.
+- [x] (2026-07-16) Follow-up: added an upgrade path that removes the former
+  pipx package and replaces legacy shell-managed blocks without deleting user
+  configuration or audit data.
 
 ## Surprises & Discoveries
 
@@ -76,6 +86,14 @@ A second tmux binding, Prefix then A, opens a read-only popup even when the curr
   the editable-install `.pth` file. Tests are deterministic via pytest's
   explicit `src` pythonpath, demonstrations used `PYTHONPATH=src`, and a built
   non-editable wheel imported and ran successfully in a clean Python 3.12 venv.
+- (2026-07-16) A live Intel Mac/Kali setup successfully reached Ollama through
+  an operator-managed SSH tunnel and accepted basic JSON responses, but
+  `securityllama` requests were rejected until the client explicitly controlled
+  Qwen3's thinking option. The default is now `think = false`.
+- (2026-07-16) The requested product name differs from the initial internal
+  implementation name. A public-surface rename was selected instead of a
+  Python-module rename to avoid needless import churn while producing the
+  `securityllama` command and private XDG paths.
 
 ## Decision Log
 
@@ -112,6 +130,21 @@ A second tmux binding, Prefix then A, opens a read-only popup even when the curr
   Rationale: This supports the project's typical Kali VM environment without
   exposing Ollama on bridged/public networks or making the application manage
   host networking.
+
+- Decision: Ollama thinking is configurable and disabled by default.
+  Rationale: Qwen3 thinking materially increased latency on the target Intel
+  Mac, while the copilot already requires a structured response and validates
+  it locally. Operators can enable it in the TOML configuration when deeper
+  reasoning is worth the latency.
+  Date/Author: 2026-07-16 / Codex.
+
+- Decision: The public product name is `securityllama`; retain `kali_copilot` as
+  the internal Python package name.
+  Rationale: The operator-facing executable, shell hooks, package metadata,
+  XDG directories, environment variables, and documentation should match the
+  requested project identity, while an internal module rename adds migration
+  risk without changing behavior.
+  Date/Author: 2026-07-16 / Codex.
   Date/Author: 2026-07-16 / Codex.
 
 - Decision: Session identity uses a private runtime file keyed by a stable hash
@@ -143,6 +176,11 @@ tests prove terminal context is absent from the system prompt and malformed JSON
 causes exactly two chat requests (initial plus one repair).
 
 Milestone 2 is complete subject to the recorded live-tmux environmental check.
+
+The 2026-07-16 host/Kali acceptance follow-up confirmed that the SSH tunnel
+and Ollama endpoint work in practice. The client now sends the configured
+`think` boolean on every `/api/chat` request; the default is false for the
+responsive `qwen3:8b` workflow.
 On 2026-07-16, the suite passed 15 tests; sanitizer branches had 100% coverage.
 Tests assert that terminal CSI/OSC/C0 sequences and seeded secrets are removed,
 line/byte truncation retains recent evidence, invalid pane identifiers fail
@@ -187,7 +225,7 @@ ZLE/Readline/tmux observations; those have not been claimed as passing.
 
 The repository may initially contain only this planning packet. Create the implementation from scratch.
 
-The product is named `kali-copilot`. The Python import package is `kali_copilot`, and the primary executable is `kali-copilot`. The application connects to an Ollama-compatible HTTP endpoint configured by the operator. It does not install Ollama, download models, alter host networking, or manage macOS settings.
+The product is named `securityllama`. The Python import package is `kali_copilot`, and the primary executable is `securityllama`. The application connects to an Ollama-compatible HTTP endpoint configured by the operator. It does not install Ollama, download models, alter host networking, or manage macOS settings.
 
 A “shell widget” is a small zsh or Bash function bound to a key while the shell is editing a command. It can read the current editable line, call the Python application, and replace the line with a returned proposal. It does not execute the line.
 
@@ -224,9 +262,9 @@ Use the following repository layout unless implementation evidence justifies a c
     │   ├── ci.sh
     │   └── smoke-kali.sh
     ├── shell/
-    │   ├── kali-copilot.zsh
-    │   ├── kali-copilot.bash
-    │   └── kali-copilot.tmux.conf
+    │   ├── securityllama.zsh
+    │   ├── securityllama.bash
+    │   └── securityllama.tmux.conf
     ├── src/
     │   └── kali_copilot/
     │       ├── __init__.py
@@ -259,24 +297,24 @@ Use the following repository layout unless implementation evidence justifies a c
 
 The completed command-line interface must provide these commands:
 
-    kali-copilot ask [QUESTION]
-    kali-copilot explain [QUESTION]
-    kali-copilot review [QUESTION]
-    kali-copilot suggest [QUESTION]
-    kali-copilot popup [OPTIONS]
-    kali-copilot shell-widget --request-file PATH --response-file PATH
-    kali-copilot doctor
-    kali-copilot config init
-    kali-copilot config show
-    kali-copilot install-shell
-    kali-copilot session new
-    kali-copilot session status
-    kali-copilot session clear
-    kali-copilot scope init NAME
-    kali-copilot scope use NAME
-    kali-copilot scope show [NAME]
-    kali-copilot history
-    kali-copilot redact
+    securityllama ask [QUESTION]
+    securityllama explain [QUESTION]
+    securityllama review [QUESTION]
+    securityllama suggest [QUESTION]
+    securityllama popup [OPTIONS]
+    securityllama shell-widget --request-file PATH --response-file PATH
+    securityllama doctor
+    securityllama config init
+    securityllama config show
+    securityllama install-shell
+    securityllama session new
+    securityllama session status
+    securityllama session clear
+    securityllama scope init NAME
+    securityllama scope use NAME
+    securityllama scope show [NAME]
+    securityllama history
+    securityllama redact
 
 `ask` answers a question with available session context. `explain` emphasizes recent terminal output. `review` emphasizes the current editable command and must clearly describe privileges, network effect, destructive potential, and assumptions. `suggest` requests a next command but does not require that the model return one. All four commands use the same validated response model.
 
@@ -325,10 +363,10 @@ Version 1 does not include an autonomous loop, an unrestricted “run shell” t
 
 Honor these XDG locations, with environment-variable overrides:
 
-- configuration: `${XDG_CONFIG_HOME:-~/.config}/kali-copilot/`
-- data: `${XDG_DATA_HOME:-~/.local/share}/kali-copilot/`
-- cache: `${XDG_CACHE_HOME:-~/.cache}/kali-copilot/`
-- runtime: `${XDG_RUNTIME_DIR:-/tmp/kali-copilot-$UID}/`
+- configuration: `${XDG_CONFIG_HOME:-~/.config}/securityllama/`
+- data: `${XDG_DATA_HOME:-~/.local/share}/securityllama/`
+- cache: `${XDG_CACHE_HOME:-~/.cache}/securityllama/`
+- runtime: `${XDG_RUNTIME_DIR:-/tmp/securityllama-$UID}/`
 
 The application configuration is `config.toml`. Scope files are under `scopes/NAME.toml`. The audit database is `sessions.db`. Packaged shell assets are installed under the configuration directory's `shell/` subdirectory.
 
@@ -374,12 +412,12 @@ The example application configuration must contain, with comments explaining eve
 
 Environment variables override the most operationally useful fields:
 
-- `KALI_COPILOT_OLLAMA_URL`
-- `KALI_COPILOT_MODEL`
-- `KALI_COPILOT_SCOPE`
-- `KALI_COPILOT_DEBUG`
-- `KALI_COPILOT_CONFIG_HOME`
-- `KALI_COPILOT_DATA_HOME`
+- `SECURITYLLAMA_OLLAMA_URL`
+- `SECURITYLLAMA_MODEL`
+- `SECURITYLLAMA_SCOPE`
+- `SECURITYLLAMA_DEBUG`
+- `SECURITYLLAMA_CONFIG_HOME`
+- `SECURITYLLAMA_DATA_HOME`
 
 Never read arbitrary environment variables into model context.
 
@@ -560,7 +598,7 @@ The exact start line is derived from configuration. Cap bytes again after captur
 
 The packaged tmux configuration binds Prefix then A to a read-only popup. It should use `display-popup` with configured dimensions and pass the current pane identifier before the popup is created. The command must be equivalent in behavior to:
 
-    kali-copilot popup --pane "#{pane_id}" --read-only
+    securityllama popup --pane "#{pane_id}" --read-only
 
 The read-only popup supports:
 
@@ -593,11 +631,11 @@ Use `prompt_toolkit` for keyboard input and `rich` for rendering unless implemen
 
 The shell integration must use secure request and response files because shell command-line arguments can leak through process listings.
 
-For zsh, `shell/kali-copilot.zsh` must register a ZLE widget bound to Alt-A. The widget:
+For zsh, `shell/securityllama.zsh` must register a ZLE widget bound to Alt-A. The widget:
 
 1. creates a private runtime directory;
 2. writes `$BUFFER`, `$CURSOR`, `$PWD`, shell name, last exit status when reliably available, and `$TMUX_PANE` to a mode-0600 request file;
-3. invokes `kali-copilot shell-widget` and waits for it;
+3. invokes `securityllama shell-widget` and waits for it;
 4. validates the response file;
 5. when `action` is `insert`, assigns the returned single-line string to `BUFFER`, sets `CURSOR` to the end or the returned position, and calls `zle redisplay`;
 6. otherwise leaves the buffer unchanged;
@@ -605,7 +643,7 @@ For zsh, `shell/kali-copilot.zsh` must register a ZLE widget bound to Alt-A. The
 
 It must not use `eval`.
 
-For Bash, `shell/kali-copilot.bash` must use a Readline `bind -x` function. The function performs the same round trip using `READLINE_LINE` and `READLINE_POINT`. Preserve the original line if the Python command fails, the response is invalid, or the user cancels.
+For Bash, `shell/securityllama.bash` must use a Readline `bind -x` function. The function performs the same round trip using `READLINE_LINE` and `READLINE_POINT`. Preserve the original line if the Python command fails, the response is invalid, or the user cancels.
 
 The shell widget should open a tmux popup when `$TMUX` and `$TMUX_PANE` are available. Outside tmux, it may run an inline full-screen prompt and still return a buffer response.
 
@@ -625,9 +663,9 @@ When the count since the last summary reaches `summary_trigger_turns`, call the 
 
 Provide:
 
-    kali-copilot session new
-    kali-copilot session status
-    kali-copilot session clear
+    securityllama session new
+    securityllama session status
+    securityllama session clear
 
 `session clear` starts a new logical context. It does not delete the audit database. A separate documented purge action may delete data with explicit confirmation.
 
@@ -673,8 +711,8 @@ Behavior:
 2. Install only required OS packages, expected to include `python3`, `python3-venv`, `pipx`, and `tmux`. Do not run a full distribution upgrade.
 3. Install the local repository through pipx. Development mode may use an editable install.
 4. Initialize configuration only when absent. Command-line values update only their explicit fields.
-5. Invoke `kali-copilot install-shell`.
-6. Run `kali-copilot doctor`.
+5. Invoke `securityllama install-shell`.
+6. Run `securityllama doctor`.
 7. Print the exact next steps, including starting a new shell and a tmux session.
 
 The script must be safe to run after every `git pull`. Re-running it upgrades the installed package, preserves configuration and session data, and does not duplicate shell/tmux source blocks.
@@ -724,14 +762,14 @@ Implement paths, configuration loading and validation, data models, prompting, O
 
 Run the fake service, point configuration to it, and demonstrate:
 
-    kali-copilot ask "Explain why a TCP connect can fail."
+    securityllama ask "Explain why a TCP connect can fail."
 
 The command prints a validated answer and exits zero.
 
 Demonstrate a proposal:
 
     printf '%s\n' 'PORT 443/tcp open https' |
-      kali-copilot suggest \
+      securityllama suggest \
         "Give me one low-impact validation command."
 
 The command prints an answer and a clearly delimited proposal but does not execute it.
@@ -744,7 +782,7 @@ Acceptance for Milestone 1 requires unit tests for configuration precedence, sch
 
 Implement terminal-sequence stripping, bounded capture, high-confidence secret redaction, context packet construction, tmux capture, and the read-only popup.
 
-Create an integration test using an isolated tmux server, such as `tmux -L kali-copilot-test`, so the test does not interact with the developer's session. Seed a pane with known output containing:
+Create an integration test using an isolated tmux server, such as `tmux -L securityllama-test`, so the test does not interact with the developer's session. Seed a pane with known output containing:
 
 - ordinary scan-like lines;
 - a bearer token;
@@ -848,7 +886,7 @@ Run:
     make check
     make smoke-kali
 
-Then perform a clean-tree check and package build. Install the built artifact into a clean environment and repeat `kali-copilot doctor`.
+Then perform a clean-tree check and package build. Install the built artifact into a clean environment and repeat `securityllama doctor`.
 
 ## Concrete Steps
 
@@ -866,10 +904,10 @@ During implementation, keep the fake service available through a command documen
 
 Use a temporary configuration root for demonstrations:
 
-    export KALI_COPILOT_CONFIG_HOME="$PWD/.tmp/config"
-    export KALI_COPILOT_DATA_HOME="$PWD/.tmp/data"
-    export KALI_COPILOT_OLLAMA_URL="http://127.0.0.1:11435"
-    export KALI_COPILOT_MODEL="fixture-model"
+    export SECURITYLLAMA_CONFIG_HOME="$PWD/.tmp/config"
+    export SECURITYLLAMA_DATA_HOME="$PWD/.tmp/data"
+    export SECURITYLLAMA_OLLAMA_URL="http://127.0.0.1:11435"
+    export SECURITYLLAMA_MODEL="fixture-model"
 
 Do not commit `.tmp/`, `.venv/`, databases, logs, captures, or generated configuration.
 
@@ -884,21 +922,21 @@ Record the exact results in `Progress` or `Surprises & Discoveries`. If Docker i
 
 For a fresh VM manual installation:
 
-    git clone <repository-url> ~/src/kali-copilot
-    cd ~/src/kali-copilot
+    git clone <repository-url> ~/src/securityllama
+    cd ~/src/securityllama
     ./scripts/bootstrap-kali.sh \
       --ollama-url http://127.0.0.1:11434 \
       --model <installed-model>
     exec "$SHELL" -l
     tmux new -s assessment
-    kali-copilot doctor
+    securityllama doctor
 
 ## Validation and Acceptance
 
 The project is accepted only when all of the following are demonstrably true:
 
 1. A fresh Kali VM can install from a git clone with one bootstrap command and can safely rerun that command after `git pull`.
-2. `kali-copilot doctor` distinguishes endpoint failure, model absence, missing shell integration, and permission problems.
+2. `securityllama doctor` distinguishes endpoint failure, model absence, missing shell integration, and permission problems.
 3. The CLI can ask a question and validate a structured response without tmux.
 4. Recent output is captured from the originating tmux pane, not the popup.
 5. Control sequences and seeded secrets do not reach the fake Ollama request, the display, or the audit database.

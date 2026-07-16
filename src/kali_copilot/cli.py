@@ -35,7 +35,7 @@ from kali_copilot.ui import render_response
 def build_parser() -> argparse.ArgumentParser:
     """Build the top-level argument parser."""
     parser = argparse.ArgumentParser(
-        prog="kali-copilot",
+        prog="securityllama",
         description="Human-in-the-loop terminal copilot (never executes model commands).",
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")

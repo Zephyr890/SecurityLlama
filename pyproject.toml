@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "kali-copilot"
+name = "securityllama"
 version = "0.1.0.dev0"
 description = "Human-in-the-loop Ollama terminal copilot for authorized Kali testing"
 readme = "README.md"
@@ -26,7 +26,7 @@ dev = [
 ]
 
 [project.scripts]
-kali-copilot = "kali_copilot.cli:main"
+securityllama = "kali_copilot.cli:main"
 
 [tool.setuptools]
 package-dir = { "" = "src" }
@@ -35,12 +35,12 @@ package-dir = { "" = "src" }
 where = ["src"]
 
 [tool.setuptools.data-files]
-"share/kali-copilot/shell" = [
-  "shell/kali-copilot.zsh",
-  "shell/kali-copilot.bash",
-  "shell/kali-copilot.tmux.conf",
+"share/securityllama/shell" = [
+  "shell/securityllama.zsh",
+  "shell/securityllama.bash",
+  "shell/securityllama.tmux.conf",
 ]
-"share/kali-copilot/config" = ["config/config.example.toml", "config/scope.example.toml"]
+"share/securityllama/config" = ["config/config.example.toml", "config/scope.example.toml"]
 
 [tool.ruff]
 target-version = "py311"

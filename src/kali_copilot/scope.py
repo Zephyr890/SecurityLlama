@@ -83,8 +83,8 @@ def active_scope(
 ) -> ScopeConfig | None:
     env = os.environ if environ is None else environ
     resolved = paths or resolve_paths(dict(env))
-    if env.get("KALI_COPILOT_SCOPE"):
-        return load_scope(env["KALI_COPILOT_SCOPE"], resolved)
+    if env.get("SECURITYLLAMA_SCOPE"):
+        return load_scope(env["SECURITYLLAMA_SCOPE"], resolved)
     if not resolved.active_scope_file.exists():
         return None
     name = resolved.active_scope_file.read_text(encoding="utf-8").strip()

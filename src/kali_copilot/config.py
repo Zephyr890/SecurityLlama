@@ -24,6 +24,7 @@ class StrictModel(BaseModel):
 class OllamaConfig(StrictModel):
     base_url: str = "http://127.0.0.1:11434"
     model: str = "qwen2.5-coder:3b"
+    think: bool = False
     connect_timeout_seconds: float = Field(3.0, gt=0, le=60)
     response_timeout_seconds: float = Field(120.0, gt=0, le=600)
     num_ctx: int = Field(4096, ge=512, le=131072)
@@ -109,10 +110,10 @@ def load_config(paths: AppPaths | None = None, environ: dict[str, str] | None = 
         except (OSError, UnicodeError, tomllib.TOMLDecodeError) as exc:
             raise ConfigError(f"cannot read {resolved.config_file}: {exc}") from exc
     ollama = data.setdefault("ollama", {})
-    if "KALI_COPILOT_OLLAMA_URL" in env:
-        ollama["base_url"] = env["KALI_COPILOT_OLLAMA_URL"]
-    if "KALI_COPILOT_MODEL" in env:
-        ollama["model"] = env["KALI_COPILOT_MODEL"]
+    if "SECURITYLLAMA_OLLAMA_URL" in env:
+        ollama["base_url"] = env["SECURITYLLAMA_OLLAMA_URL"]
+    if "SECURITYLLAMA_MODEL" in env:
+        ollama["model"] = env["SECURITYLLAMA_MODEL"]
     try:
         config = AppConfig.model_validate(data)
     except ValidationError as exc:
@@ -134,7 +135,9 @@ def initialize_config(paths: AppPaths | None = None) -> Path:
     if not resolved.config_file.exists():
         example = Path(__file__).resolve().parents[2] / "config" / "config.example.toml"
         if not example.exists():
-            example = Path(sys.prefix) / "share" / "kali-copilot" / "config" / "config.example.toml"
+            example = (
+                Path(sys.prefix) / "share" / "securityllama" / "config" / "config.example.toml"
+            )
         shutil.copyfile(example, resolved.config_file)
         resolved.config_file.chmod(0o600)
     return resolved.config_file

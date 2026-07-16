@@ -21,9 +21,9 @@ test:
 
 shellcheck:
 	bash -n scripts/*.sh
-	bash -n shell/kali-copilot.bash
-	@if command -v zsh >/dev/null 2>&1; then zsh -n shell/kali-copilot.zsh; else echo "zsh not installed; zsh syntax check skipped"; fi
-	@if command -v shellcheck >/dev/null 2>&1; then shellcheck scripts/*.sh shell/kali-copilot.bash; else echo "shellcheck not installed; bash syntax checks passed"; fi
+	bash -n shell/securityllama.bash
+	@if command -v zsh >/dev/null 2>&1; then zsh -n shell/securityllama.zsh; else echo "zsh not installed; zsh syntax check skipped"; fi
+	@if command -v shellcheck >/dev/null 2>&1; then shellcheck scripts/*.sh shell/securityllama.bash; else echo "shellcheck not installed; bash syntax checks passed"; fi
 
 check: lint typecheck test shellcheck
 

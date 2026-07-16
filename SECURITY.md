@@ -1,6 +1,6 @@
 # Security policy and trust boundary
 
-`kali-copilot` is advisory software. It must never execute a model-generated
+`securityllama` is advisory software. It must never execute a model-generated
 command, submit a privilege prompt, or claim that advisory scope parsing makes
 a command authorized or safe. Command insertion means assigning a validated,
 single-line string to the shell's editable buffer; execution remains an explicit

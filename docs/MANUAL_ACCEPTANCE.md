@@ -10,9 +10,9 @@ until run in the project's VirtualBox Kali VM.
 1. Configure a VirtualBox host-only adapter. Keep Ollama bound to host loopback
    and create the SSH tunnel documented in the README, or run Ollama in Kali.
 2. Clone the repository and run the documented bootstrap command twice. Confirm
-   `grep -c '>>> kali-copilot managed block >>>' ~/.zshrc ~/.bashrc` reports one
+   `grep -c '>>> securityllama managed block >>>' ~/.zshrc ~/.bashrc` reports one
    block per file.
-3. Start a login zsh and `tmux new -s assessment`; run `kali-copilot doctor`.
+3. Start a login zsh and `tmux new -s assessment`; run `securityllama doctor`.
 4. Print synthetic scan-like output containing ANSI color and a fake bearer
    token. Press Prefix then A and verify the popup reports redaction and omits
    both the token and terminal controls.

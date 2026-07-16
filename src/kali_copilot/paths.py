@@ -36,17 +36,19 @@ def resolve_paths(environ: dict[str, str] | None = None) -> AppPaths:
     env = os.environ if environ is None else environ
     home = Path(env.get("HOME", str(Path.home())))
     config_base = Path(
-        env.get("KALI_COPILOT_CONFIG_HOME", env.get("XDG_CONFIG_HOME", home / ".config"))
+        env.get("SECURITYLLAMA_CONFIG_HOME", env.get("XDG_CONFIG_HOME", home / ".config"))
     )
     data_base = Path(
-        env.get("KALI_COPILOT_DATA_HOME", env.get("XDG_DATA_HOME", home / ".local/share"))
+        env.get("SECURITYLLAMA_DATA_HOME", env.get("XDG_DATA_HOME", home / ".local/share"))
     )
     cache_base = Path(env.get("XDG_CACHE_HOME", home / ".cache"))
-    runtime_default = Path("/tmp") / f"kali-copilot-{os.getuid()}"  # noqa: S108
+    runtime_default = Path("/tmp") / f"securityllama-{os.getuid()}"  # noqa: S108
     runtime_base = Path(env.get("XDG_RUNTIME_DIR", runtime_default))
-    config_dir = config_base if "KALI_COPILOT_CONFIG_HOME" in env else config_base / "kali-copilot"
-    data_dir = data_base if "KALI_COPILOT_DATA_HOME" in env else data_base / "kali-copilot"
-    return AppPaths(config_dir, data_dir, cache_base / "kali-copilot", runtime_base)
+    config_dir = (
+        config_base if "SECURITYLLAMA_CONFIG_HOME" in env else config_base / "securityllama"
+    )
+    data_dir = data_base if "SECURITYLLAMA_DATA_HOME" in env else data_base / "securityllama"
+    return AppPaths(config_dir, data_dir, cache_base / "securityllama", runtime_base)
 
 
 def ensure_private_directory(path: Path) -> None:

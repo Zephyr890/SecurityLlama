@@ -1,6 +1,6 @@
-# kali-copilot
+# securityllama
 
-`kali-copilot` is a terminal assistant for authorized security testing in Kali
+`securityllama` is a terminal assistant for authorized security testing in Kali
 Linux VMs. It sends bounded, sanitized context to an operator-configured Ollama
 endpoint and can place a proposed command into an editable zsh or Bash prompt.
 
@@ -19,8 +19,13 @@ operator-managed tunnel. From a clone:
   --model qwen2.5-coder:3b
 exec "$SHELL" -l
 tmux new -s assessment
-kali-copilot doctor
+securityllama doctor
 ```
+
+The default Ollama request disables Qwen-style extended thinking for a faster
+interactive experience on CPU-only hosts. Set `[ollama].think = true` in
+`~/.config/securityllama/config.toml` when deeper reasoning is worth the added
+latency.
 
 The bootstrap installs only required Debian packages, installs this package with
 pipx, preserves existing configuration, backs up changed shell files, and is
@@ -38,27 +43,27 @@ whose proposals can only be copied into a tmux paste buffer.
 Non-interactive modes also accept bounded context on stdin:
 
 ```sh
-kali-copilot ask "What does this failure imply?"
-journalctl -n 50 | kali-copilot explain "Identify the likely failure boundary."
-kali-copilot review "Review the current command."
-nmap-output-command | kali-copilot suggest "Propose one low-impact validation."
+securityllama ask "What does this failure imply?"
+journalctl -n 50 | securityllama explain "Identify the likely failure boundary."
+securityllama review "Review the current command."
+nmap-output-command | securityllama suggest "Propose one low-impact validation."
 ```
 
 Management commands include:
 
 ```sh
-kali-copilot config init
-kali-copilot session new
-kali-copilot session status
-kali-copilot session clear
-kali-copilot scope init lab01
-kali-copilot scope use lab01
-kali-copilot scope show
-kali-copilot history
-kali-copilot redact < captured-output.txt
+securityllama config init
+securityllama session new
+securityllama session status
+securityllama session clear
+securityllama scope init lab01
+securityllama scope use lab01
+securityllama scope show
+securityllama history
+securityllama redact < captured-output.txt
 ```
 
-Edit a scope file under `~/.config/kali-copilot/scopes/` to add the CIDRs,
+Edit a scope file under `~/.config/securityllama/scopes/` to add the CIDRs,
 domains, and permissions actually authorized for an engagement. New scope files
 are unauthorized by default. Scope analysis is conservative: substitutions,
 interpreters, scripts, redirects, or unclear targets produce an `unknown`
@@ -102,7 +107,7 @@ ssh -N \
   <host-user>@<host-only-host-ip>
 ```
 
-Then configure `kali-copilot` for `http://127.0.0.1:11434`. Do not expose
+Then configure `securityllama` for `http://127.0.0.1:11434`. Do not expose
 Ollama on a bridged or public interface merely to make the VM connect. The
 project does not modify VirtualBox, host firewall, SSH, or Ollama settings.
 
@@ -125,13 +130,13 @@ The architecture keeps five boundaries separate:
 
 Session memory includes a bounded number of redacted question/answer turns, not
 historical terminal captures. Audits default to
-`~/.local/share/kali-copilot/sessions.db`, mode `0600`, and omit raw context.
+`~/.local/share/securityllama/sessions.db`, mode `0600`, and omit raw context.
 Set `[audit].enabled = false` to disable both audit records and persistent recent
 turn memory.
 
 ## Troubleshooting and removal
 
-Run `kali-copilot doctor` first. It reports configuration, private-directory
+Run `securityllama doctor` first. It reports configuration, private-directory
 permissions, tmux, shell sourcing, endpoint reachability, model availability,
 scope status, and audit writability independently. Exit code `3` means the
 endpoint is unavailable, `4` means the model is not listed, and `5` means two

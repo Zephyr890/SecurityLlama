@@ -25,7 +25,7 @@ class AuditStore:
     def _migrate(self) -> None:
         version = self.connection.execute("PRAGMA user_version").fetchone()[0]
         if version > SCHEMA_VERSION:
-            raise RuntimeError("audit database was created by a newer kali-copilot version")
+            raise RuntimeError("audit database was created by a newer securityllama version")
         if version == 0:
             self.connection.executescript(
                 """

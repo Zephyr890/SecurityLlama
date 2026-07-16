@@ -1,8 +1,8 @@
-# kali-copilot zsh integration: model output is inserted, never executed.
+# securityllama zsh integration: model output is inserted, never executed.
 
-function _kali_copilot_widget() {
+function _securityllama_widget() {
   local previous_status=$?
-  local runtime_dir="${XDG_RUNTIME_DIR:-/tmp/kali-copilot-${UID}}"
+  local runtime_dir="${XDG_RUNTIME_DIR:-/tmp/securityllama-${UID}}"
   local work_dir request_file response_file buffer_file command_file action
   local -a pane_args
   mkdir -p -m 700 -- "$runtime_dir" || return 1
@@ -17,7 +17,7 @@ function _kali_copilot_widget() {
   pane_args=()
   [[ -n ${TMUX_PANE:-} ]] && pane_args=(--pane "$TMUX_PANE")
 
-  if ! kali-copilot _make-widget-request \
+  if ! securityllama _make-widget-request \
       --buffer-file "$buffer_file" --request-file "$request_file" \
       --shell zsh --cwd "$PWD" --cursor "$CURSOR" \
       "${pane_args[@]}" --last-status "$previous_status"; then
@@ -28,13 +28,13 @@ function _kali_copilot_widget() {
 
   if [[ -n ${TMUX:-} && -n ${TMUX_PANE:-} ]]; then
     tmux display-popup -E -w 92% -h 85% -- \
-      kali-copilot shell-widget --request-file "$request_file" --response-file "$response_file"
+      securityllama shell-widget --request-file "$request_file" --response-file "$response_file"
   else
-    kali-copilot shell-widget --request-file "$request_file" --response-file "$response_file"
+    securityllama shell-widget --request-file "$request_file" --response-file "$response_file"
   fi
 
   if [[ -f "$response_file" ]]; then
-    action=$(kali-copilot _extract-widget-response \
+    action=$(securityllama _extract-widget-response \
       --response-file "$response_file" --command-file "$command_file")
     if [[ "$action" == insert && -f "$command_file" ]]; then
       BUFFER=$(<"$command_file")
@@ -45,5 +45,5 @@ function _kali_copilot_widget() {
   zle redisplay
 }
 
-zle -N kali-copilot-widget _kali_copilot_widget
-bindkey '^[a' kali-copilot-widget
+zle -N securityllama-widget _securityllama_widget
+bindkey '^[a' securityllama-widget
