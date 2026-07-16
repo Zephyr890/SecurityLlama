@@ -65,6 +65,15 @@ A second tmux binding, Prefix then A, opens a read-only popup even when the curr
 - [x] (2026-07-16) Follow-up: extended setup with operator-managed SSH tunnel
   settings and a `securityllama tunnel command` renderer; credentials and SSH
   process management remain outside the application.
+- [x] (2026-07-16) Follow-up: changed the Ollama wire-format request from the
+  full nested Pydantic schema to Ollama-compatible JSON mode after the live
+  endpoint rejected the nested schema with HTTP 400. Full response validation
+  and the bounded repair request remain local application responsibilities.
+- [x] (2026-07-16) Follow-up: performed a public-repository filesystem audit,
+  removed ignored virtualenv/build/cache/runtime artifacts, and expanded
+  ignore rules for local environment files, databases, swap files, and private
+  key material. Tracked files and reachable commit history contained no real
+  credentials or private keys; secret-looking sanitizer fixtures are synthetic.
 
 ## Surprises & Discoveries
 
@@ -101,6 +110,16 @@ A second tmux binding, Prefix then A, opens a read-only popup even when the curr
   implementation name. A public-surface rename was selected instead of a
   Python-module rename to avoid needless import churn while producing the
   `securityllama` command and private XDG paths.
+- (2026-07-16) A local release-validation run left a `.tmp/release-data`
+  SQLite database and generated release virtualenv alongside normal build and
+  test caches. These were ignored but still present on disk, so the public-repo
+  cleanup removed them rather than relying only on Git's ignore behavior.
+- (2026-07-16) After removing the local development virtualenv as part of the
+  public-repository cleanup, `make check
+  PYTHON=/Users/admin/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3`
+  could not start because that bundled interpreter has no `ruff` module. The
+  earlier full check evidence remains recorded above; this cleanup change was
+  validated with Git whitespace, shell syntax, and repository-content checks.
 
 ## Decision Log
 
@@ -152,6 +171,12 @@ A second tmux binding, Prefix then A, opens a read-only popup even when the curr
   requested project identity, while an internal module rename adds migration
   risk without changing behavior.
   Date/Author: 2026-07-16 / Codex.
+
+- Decision: Keep local environment files, databases, generated artifacts, swap
+  files, and private-key formats ignored at the repository boundary.
+  Rationale: These files are machine- or operator-specific and are not needed
+  to clone and bootstrap a fresh Kali VM; ignoring them reduces accidental
+  publication without weakening the application's runtime behavior.
   Date/Author: 2026-07-16 / Codex.
 
 - Decision: Session identity uses a private runtime file keyed by a stable hash
@@ -225,6 +250,12 @@ Milestone 6 automated work is complete. `git diff --check` passed and the releas
 security search found no matches for `shell=True`, executable `eval`, or tmux
 Enter-key injection. README and SECURITY cover architecture, trust boundaries,
 VirtualBox tunneling, scopes, audits, updates, troubleshooting, and removal.
+
+Public-repository cleanup is complete for the current checkout. The filesystem
+contains no ignored virtualenv, build/dist output, cache, `.DS_Store`, temporary
+runtime directory, or local SQLite audit database. A history scan found only
+synthetic secret-pattern fixtures in `tests/unit/test_sanitize.py`; no real
+credential material was found in reachable commits.
 `docs/MANUAL_ACCEPTANCE.md` distinguishes the remaining fresh-Kali interactive
 ZLE/Readline/tmux observations; those have not been claimed as passing.
 

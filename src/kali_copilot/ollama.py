@@ -70,7 +70,10 @@ class OllamaClient:
             "model": self.config.ollama.model,
             "think": self.config.ollama.think,
             "stream": False,
-            "format": AssistantResponse.model_json_schema(),
+            # Some Ollama releases reject nested Pydantic schemas with 400.
+            # Keep JSON mode at the wire boundary and enforce the complete
+            # response contract locally with Pydantic below.
+            "format": "json",
             "messages": messages,
             "options": {
                 "num_ctx": self.config.ollama.num_ctx,

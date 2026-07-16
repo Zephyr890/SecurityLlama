@@ -1,4 +1,11 @@
 .DS_Store
+AGENTS.md
+.agent/
+Planning/
+ROADMAP.md
+.env
+.env.*
+!.env.example
 .venv/
 .tmp/
 __pycache__/
@@ -11,4 +18,12 @@ __pycache__/
 build/
 dist/
 *.db
+*.sqlite
+*.sqlite3
 *.log
+*.swp
+*.swo
+*.pem
+*.key
+*.p12
+*.pfx
