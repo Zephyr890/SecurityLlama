@@ -106,3 +106,29 @@ def test_invalid_json_gets_exactly_one_repair() -> None:
     with pytest.raises(InvalidModelResponseError):
         OllamaClient(config, httpx.MockTransport(handler)).chat(packet())
     assert chat_calls == 2
+
+
+def test_missing_answer_repair_retains_request_and_ends_with_instruction() -> None:
+    requests: list[dict[str, object]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/tags":
+            return httpx.Response(200, json={"models": [{"name": "fixture-model"}]})
+        body = json.loads(request.content)
+        requests.append(body)
+        content = json.dumps({"schema_version": "1"}) if len(requests) == 1 else valid_content()
+        return httpx.Response(200, json={"message": {"content": content}})
+
+    config = AppConfig(ollama=OllamaConfig(model="fixture-model"))
+    result = OllamaClient(config, httpx.MockTransport(handler)).chat(packet())
+
+    assert result.answer.startswith("Because")
+    repair_messages = requests[1]["messages"]
+    assert [message["role"] for message in repair_messages] == [
+        "system",
+        "user",
+        "assistant",
+        "user",
+    ]
+    assert "untrusted output" in repair_messages[1]["content"]
+    assert "answer (missing)" in repair_messages[-1]["content"]

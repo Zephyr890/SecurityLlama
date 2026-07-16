@@ -94,6 +94,10 @@ A second tmux binding, Prefix then A, opens a read-only popup even when the curr
   missing, explain important flags, and classify active scanners' network
   effect. The example generation budget is now 512 tokens to leave room for
   validated JSON plus an actionable answer.
+- [x] (2026-07-16) Follow-up: corrected structured-response repair ordering so
+  the original request remains in context, the invalid response is identified
+  as the prior assistant turn, and the final user turn directs the model to
+  return a complete replacement object with a non-empty answer.
 
 ## Surprises & Discoveries
 
@@ -144,6 +148,10 @@ A second tmux binding, Prefix then A, opens a read-only popup even when the curr
   a direct `PYTHONPATH=src python3 -m pytest tests/unit/test_ollama.py` could
   not start. The repository `.venv` Python 3.12 runtime ran the complete
   `make check` successfully after the prompt and config changes.
+- (2026-07-16) Live Qwen output exposed that the repair conversation ended
+  with the invalid assistant response after the repair instruction. Some local
+  models consequently continued the invalid response instead of obeying the
+  earlier instruction, returning another object without `answer`.
 
 ## Decision Log
 
@@ -209,6 +217,14 @@ A second tmux binding, Prefix then A, opens a read-only popup even when the curr
   while omitting the requested output path and proposed command. The prompt
   now requires those details to be reflected in the validated response while
   preserving the existing no-execution boundary.
+  Date/Author: 2026-07-16 / Codex.
+
+- Decision: A schema-repair request reuses the original system and user turns,
+  appends the invalid content as an assistant turn, and ends with a compact
+  user correction instruction.
+  Rationale: Chat models prioritize the latest conversational turn. Keeping
+  the original task prevents a repaired answer from losing task details, while
+  ending on the correction makes the expected action unambiguous.
   Date/Author: 2026-07-16 / Codex.
 
 - Decision: Session identity uses a private runtime file keyed by a stable hash
@@ -299,6 +315,12 @@ asserts these instructions are present in the Ollama system message. On
 2026-07-16, `make check PYTHON=.venv/bin/python` passed with 27 tests; the
 separate system-Python pytest attempt was unavailable because that interpreter
 does not provide pytest, as recorded above.
+
+The missing-answer repair follow-up is complete. The repair exchange now keeps
+the original context and ends with the correction request. A deterministic
+transport test reproduces an initial `{"schema_version":"1"}` response,
+asserts the repaired role order, and verifies that the valid second response is
+accepted. The no-execution and one-repair limits are unchanged.
 
 ## Context and Orientation
 

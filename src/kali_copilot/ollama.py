@@ -11,7 +11,7 @@ from pydantic import ValidationError
 
 from kali_copilot.config import AppConfig
 from kali_copilot.models import AssistantResponse, ContextPacket, ConversationTurn
-from kali_copilot.prompting import SYSTEM_PROMPT, chat_messages
+from kali_copilot.prompting import chat_messages
 
 
 class OllamaError(RuntimeError):
@@ -98,18 +98,23 @@ class OllamaClient:
         try:
             return AssistantResponse.model_validate_json(content)
         except ValidationError as first_error:
+            validation_summary = "; ".join(
+                ".".join(str(part) for part in error["loc"]) + " (" + error["type"] + ")"
+                for error in first_error.errors()
+            )
             repair = [
-                {"role": "system", "content": SYSTEM_PROMPT},
+                *messages,
+                {"role": "assistant", "content": content},
                 {
                     "role": "user",
                     "content": (
-                        "Return a complete replacement JSON object. Preserve valid values from "
-                        "the previous object, fix every validation error, include every required "
-                        "field, and return no Markdown. Validation errors: "
-                        + json.dumps(first_error.errors(), default=str)
+                        "Your previous response failed schema validation. Re-answer the original "
+                        "request as one complete replacement JSON object. Include a non-empty "
+                        "answer field, preserve any other valid values, fix every listed error, "
+                        "and return JSON only with no Markdown. Validation errors: "
+                        + validation_summary
                     ),
                 },
-                {"role": "assistant", "content": content},
             ]
             repaired = self._post_chat(repair)
             try:
