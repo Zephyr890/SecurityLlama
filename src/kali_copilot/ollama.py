@@ -102,8 +102,12 @@ class OllamaClient:
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {
                     "role": "user",
-                    "content": "Repair the previous JSON using only these validation errors: "
-                    + json.dumps(first_error.errors(), default=str),
+                    "content": (
+                        "Return a complete replacement JSON object. Preserve valid values from "
+                        "the previous object, fix every validation error, include every required "
+                        "field, and return no Markdown. Validation errors: "
+                        + json.dumps(first_error.errors(), default=str)
+                    ),
                 },
                 {"role": "assistant", "content": content},
             ]

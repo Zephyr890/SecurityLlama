@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from kali_copilot.models import ContextPacket
+from kali_copilot.models import AssistantResponse, ContextPacket
 
 SYSTEM_PROMPT_VERSION = "1"
 SYSTEM_PROMPT = (
@@ -15,7 +15,8 @@ SYSTEM_PROMPT = (
     "evidence, distinguish facts from assumptions, and do not invent unseen output.\n"
     "If proposing a command, provide exactly one single-line command without NUL or newline, "
     "explain its effect and expected evidence, classify risk and network activity, and list "
-    "obvious targets.\nReturn only one JSON object matching the supplied schema."
+    "obvious targets.\nReturn only one JSON object matching this schema."
+    "\nRESPONSE_SCHEMA_JSON=" + json.dumps(AssistantResponse.model_json_schema(), sort_keys=True)
 )
 
 

@@ -62,6 +62,7 @@ def test_chat_keeps_context_out_of_system_prompt() -> None:
     messages = requests[0]["messages"]
     assert isinstance(messages, list)
     assert "untrusted output" not in messages[0]["content"]
+    assert "RESPONSE_SCHEMA_JSON=" in messages[0]["content"]
     assert "UNTRUSTED_CONTEXT_DATA" in messages[1]["content"]
 
 
