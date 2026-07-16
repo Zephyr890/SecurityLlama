@@ -98,6 +98,10 @@ A second tmux binding, Prefix then A, opens a read-only popup even when the curr
   the original request remains in context, the invalid response is identified
   as the prior assistant turn, and the final user turn directs the model to
   return a complete replacement object with a non-empty answer.
+- [x] (2026-07-16) Follow-up: hardened local-model response handling by safely
+  extracting one JSON object from prose or Markdown wrappers, recovering a
+  missing answer from an otherwise valid command explanation, and granting a
+  repair response at least 512 output tokens to avoid truncated JSON.
 
 ## Surprises & Discoveries
 
@@ -152,6 +156,10 @@ A second tmux binding, Prefix then A, opens a read-only popup even when the curr
   with the invalid assistant response after the repair instruction. Some local
   models consequently continued the invalid response instead of obeying the
   earlier instruction, returning another object without `answer`.
+- (2026-07-16) After repair ordering was corrected, the live model still
+  returned `json_invalid`. Existing installations preserve their configuration,
+  including the former 256-token generation limit, so a complete replacement
+  object could still be truncated even though new example configs use 512.
 
 ## Decision Log
 
@@ -225,6 +233,15 @@ A second tmux binding, Prefix then A, opens a read-only popup even when the curr
   Rationale: Chat models prioritize the latest conversational turn. Keeping
   the original task prevents a repaired answer from losing task details, while
   ending on the correction makes the expected action unambiguous.
+  Date/Author: 2026-07-16 / Codex.
+
+- Decision: Tolerate only structural presentation defects locally; continue to
+  validate every consumed response field before display or insertion.
+  Rationale: Small local models commonly wrap JSON in prose or omit `answer`
+  while supplying a valid command explanation. Extracting one decoded object
+  and promoting that explanation avoids a needless repair without interpreting
+  free-form text as a command. Malformed or truncated objects still fail and
+  receive the single bounded repair attempt.
   Date/Author: 2026-07-16 / Codex.
 
 - Decision: Session identity uses a private runtime file keyed by a stable hash
@@ -321,6 +338,14 @@ the original context and ends with the correction request. A deterministic
 transport test reproduces an initial `{"schema_version":"1"}` response,
 asserts the repaired role order, and verifies that the valid second response is
 accepted. The no-execution and one-repair limits are unchanged.
+
+The JSON robustness follow-up is complete. Wrapped but valid JSON is decoded
+and then passed through the same strict Pydantic boundary. An otherwise valid
+response missing only `answer` can reuse its validated command explanation;
+model text is never interpreted or executed as shell syntax. Repair calls use
+`max(configured_num_predict, 512)` while ordinary calls retain the configured
+budget. Tests cover wrapped JSON, local missing-answer recovery, repair role
+ordering, the repair token floor, and rejection after one malformed repair.
 
 ## Context and Orientation
 

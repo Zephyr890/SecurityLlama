@@ -92,6 +92,53 @@ def test_how_to_prompt_requires_actionable_command_details() -> None:
     assert "network_effect=active" in system_prompt
 
 
+def test_wrapped_json_is_validated_without_repair() -> None:
+    chat_calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal chat_calls
+        if request.url.path == "/api/tags":
+            return httpx.Response(200, json={"models": [{"name": "fixture-model"}]})
+        chat_calls += 1
+        wrapped = "Here is the JSON:\n```json\n" + valid_content() + "\n```"
+        return httpx.Response(200, json={"message": {"content": wrapped}})
+
+    config = AppConfig(ollama=OllamaConfig(model="fixture-model"))
+    result = OllamaClient(config, httpx.MockTransport(handler)).chat(packet())
+
+    assert result.answer.startswith("Because")
+    assert chat_calls == 1
+
+
+def test_missing_answer_uses_valid_command_explanation_without_repair() -> None:
+    chat_calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal chat_calls
+        if request.url.path == "/api/tags":
+            return httpx.Response(200, json={"models": [{"name": "fixture-model"}]})
+        chat_calls += 1
+        content = json.dumps(
+            {
+                "schema_version": "1",
+                "proposed_command": "nikto -h <target_url> -o /tmp/nikto.txt -Format txt",
+                "command_explanation": "Runs Nikto and writes text output to the requested file.",
+                "risk": "medium",
+                "requires_root": False,
+                "network_effect": "active",
+            }
+        )
+        return httpx.Response(200, json={"message": {"content": content}})
+
+    config = AppConfig(ollama=OllamaConfig(model="fixture-model"))
+    result = OllamaClient(config, httpx.MockTransport(handler)).chat(packet())
+
+    assert result.answer == "Runs Nikto and writes text output to the requested file."
+    assert result.proposed_command.startswith("nikto ")
+    assert result.command_explanation is None
+    assert chat_calls == 1
+
+
 def test_invalid_json_gets_exactly_one_repair() -> None:
     chat_calls = 0
 
@@ -119,7 +166,7 @@ def test_missing_answer_repair_retains_request_and_ends_with_instruction() -> No
         content = json.dumps({"schema_version": "1"}) if len(requests) == 1 else valid_content()
         return httpx.Response(200, json={"message": {"content": content}})
 
-    config = AppConfig(ollama=OllamaConfig(model="fixture-model"))
+    config = AppConfig(ollama=OllamaConfig(model="fixture-model", num_predict=256))
     result = OllamaClient(config, httpx.MockTransport(handler)).chat(packet())
 
     assert result.answer.startswith("Because")
@@ -132,3 +179,5 @@ def test_missing_answer_repair_retains_request_and_ends_with_instruction() -> No
     ]
     assert "untrusted output" in repair_messages[1]["content"]
     assert "answer (missing)" in repair_messages[-1]["content"]
+    assert requests[0]["options"]["num_predict"] == 256
+    assert requests[1]["options"]["num_predict"] == 512

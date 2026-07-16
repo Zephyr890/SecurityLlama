@@ -32,6 +32,43 @@ class HealthResult:
     message: str
 
 
+def _response_error_summary(error: ValidationError | ValueError) -> str:
+    if isinstance(error, ValidationError):
+        return "; ".join(
+            ".".join(str(part) for part in item["loc"]) + " (" + item["type"] + ")"
+            for item in error.errors()
+        )
+    return "response (json_invalid)"
+
+
+def _response_object(content: str) -> dict[str, Any]:
+    """Decode one JSON object, tolerating prose or Markdown around it."""
+    start = content.find("{")
+    if start < 0:
+        raise ValueError("response contains no JSON object")
+    try:
+        value, _end = json.JSONDecoder().raw_decode(content[start:])
+    except json.JSONDecodeError as exc:
+        raise ValueError("response JSON is malformed or truncated") from exc
+    if not isinstance(value, dict):
+        raise ValueError("response JSON must be an object")
+    return value
+
+
+def _validated_response(content: str) -> AssistantResponse:
+    """Validate model output and recover only safe, otherwise-complete omissions."""
+    value = _response_object(content)
+    if not value.get("answer"):
+        explanation = value.get("command_explanation")
+        command = value.get("proposed_command")
+        if isinstance(explanation, str) and explanation.strip():
+            value["answer"] = explanation
+            value["command_explanation"] = None
+        elif isinstance(command, str) and command.strip():
+            value["answer"] = "Use the proposed command below as a starting point."
+    return AssistantResponse.model_validate(value)
+
+
 class OllamaClient:
     def __init__(self, config: AppConfig, transport: httpx.BaseTransport | None = None) -> None:
         self.config = config
@@ -65,7 +102,7 @@ class OllamaClient:
         except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
             raise OllamaError(f"Ollama endpoint unavailable: {exc}") from exc
 
-    def _post_chat(self, messages: list[dict[str, str]]) -> str:
+    def _post_chat(self, messages: list[dict[str, str]], *, minimum_num_predict: int = 0) -> str:
         body: dict[str, Any] = {
             "model": self.config.ollama.model,
             "think": self.config.ollama.think,
@@ -77,7 +114,7 @@ class OllamaClient:
             "messages": messages,
             "options": {
                 "num_ctx": self.config.ollama.num_ctx,
-                "num_predict": self.config.ollama.num_predict,
+                "num_predict": max(self.config.ollama.num_predict, minimum_num_predict),
                 "temperature": self.config.ollama.temperature,
             },
         }
@@ -96,12 +133,9 @@ class OllamaClient:
         messages = chat_messages(packet)
         content = self._post_chat(messages)
         try:
-            return AssistantResponse.model_validate_json(content)
-        except ValidationError as first_error:
-            validation_summary = "; ".join(
-                ".".join(str(part) for part in error["loc"]) + " (" + error["type"] + ")"
-                for error in first_error.errors()
-            )
+            return _validated_response(content)
+        except (ValidationError, ValueError) as first_error:
+            validation_summary = _response_error_summary(first_error)
             repair = [
                 *messages,
                 {"role": "assistant", "content": content},
@@ -116,16 +150,13 @@ class OllamaClient:
                     ),
                 },
             ]
-            repaired = self._post_chat(repair)
+            repaired = self._post_chat(repair, minimum_num_predict=512)
             try:
-                return AssistantResponse.model_validate_json(repaired)
-            except ValidationError as exc:
+                return _validated_response(repaired)
+            except (ValidationError, ValueError) as exc:
                 raise InvalidModelResponseError(
                     "model returned invalid structured JSON after one repair: "
-                    + "; ".join(
-                        ".".join(str(part) for part in error["loc"]) + " (" + error["type"] + ")"
-                        for error in exc.errors()
-                    )
+                    + _response_error_summary(exc)
                 ) from exc
 
     def summarize(self, previous_summary: str, turns: list[ConversationTurn]) -> str:
