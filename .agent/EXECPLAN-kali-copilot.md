@@ -72,6 +72,10 @@ A second tmux binding, Prefix then A, opens a read-only popup even when the curr
 - [x] (2026-07-16) Follow-up: embedded the exact response schema in the system
   prompt so JSON mode has the field and enum guidance previously supplied by
   Ollama's rejected nested schema.
+- [x] (2026-07-16) Follow-up: tuned the default prompt for an expert operator
+  workflow: concise direct answers, no generic safety lectures, and up to four
+  concrete alternatives in answer text while retaining one validated command
+  for optional shell insertion.
 - [x] (2026-07-16) Follow-up: performed a public-repository filesystem audit,
   removed ignored virtualenv/build/cache/runtime artifacts, and expanded
   ignore rules for local environment files, databases, swap files, and private
