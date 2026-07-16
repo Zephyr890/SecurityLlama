@@ -6,10 +6,10 @@ import json
 
 from kali_copilot.models import ContextPacket
 
-SYSTEM_PROMPT_VERSION = "4"
+SYSTEM_PROMPT_VERSION = "5"
 RESPONSE_KEYS = (
     "schema_version, answer, proposed_command, command_explanation, risk, requires_root, "
-    "network_effect, target_candidates, warnings, assumptions"
+    "network_effect, target_candidates, findings, warnings, assumptions"
 )
 CONTEXT_KEYS = (
     "active_scope, capture_truncated, conversation_summary, current_buffer, cursor_position, "
@@ -33,6 +33,7 @@ RESPONSE_FORMAT_SCHEMA: dict[str, object] = {
             "enum": ["none", "passive", "active", "unknown"],
         },
         "target_candidates": {"type": "array", "items": {"type": "string"}},
+        "findings": {"type": "array", "items": {"type": "string"}},
         "warnings": {"type": "array", "items": {"type": "string"}},
         "assumptions": {"type": "array", "items": {"type": "string"}},
     },
@@ -45,6 +46,7 @@ RESPONSE_FORMAT_SCHEMA: dict[str, object] = {
         "requires_root",
         "network_effect",
         "target_candidates",
+        "findings",
         "warnings",
         "assumptions",
     ],
@@ -68,7 +70,11 @@ SYSTEM_PROMPT = (
     "evidence, distinguish facts from assumptions, and do not invent unseen output. In explain "
     "mode, non-empty recent_output is actual current tool output and is the primary evidence. "
     "Analyze it directly; never claim that no findings were supplied when recent_output is "
-    "non-empty.\n"
+    "non-empty. For requests to rank security-tool findings, make answer a one-sentence overview "
+    "and put each ranked item in findings, highest severity first. Format every findings item as "
+    "'SEVERITY — title: impact; confidence or required validation'. Treat scanner phrases such as "
+    "'may mean' as unverified leads, not confirmed vulnerabilities, and reserve critical or high "
+    "ratings for evidence that supports that severity.\n"
     "For a concrete how-to or command-building request, proposed_command should be non-null "
     "unless a missing detail makes even a placeholder unsafe. It must be exactly one single-line "
     "command without NUL or newline and must include requested output options. command_explanation "

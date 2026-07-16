@@ -73,6 +73,9 @@ nmap-output-command | securityllama suggest "Propose one low-impact validation."
 When `explain` receives non-empty stdin, that current tool output is treated as
 primary evidence and prior conversation turns are omitted from the model request.
 This prevents an earlier interpretation from overriding newly supplied results.
+Security-tool ranking responses use a validated `findings` list rendered as
+numbered terminal lines. Assumptions and warnings are rendered as separate
+bulleted sections rather than compressed into prose.
 
 Management commands include:
 
@@ -153,8 +156,9 @@ The architecture keeps five boundaries separate:
 5. Local policy and audit code assess inert command text and persist only
    redacted metadata plus a context hash.
 
-Session memory includes a bounded number of redacted question/answer turns, not
-historical terminal captures. Audits default to
+Session memory includes a bounded number of redacted turns: the answer plus
+structured findings, assumptions, and warnings. It does not include historical
+terminal captures or raw input files. Audits default to
 `~/.local/share/securityllama/sessions.db`, mode `0600`, and omit raw context.
 Set `[audit].enabled = false` to disable both audit records and persistent recent
 turn memory.

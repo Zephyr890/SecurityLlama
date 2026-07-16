@@ -114,6 +114,13 @@ A second tmux binding, Prefix then A, opens a read-only popup even when the curr
 - [x] (2026-07-16) Follow-up: made non-empty stdin authoritative in `explain`
   mode by omitting stale recent turns from that model request and explicitly
   instructing the model to analyze `recent_output` as current tool evidence.
+- [x] (2026-07-16) Follow-up: added an ordered `findings` array to the validated
+  assistant response and terminal renderer, with numbered findings and separate
+  assumption/warning bullets. Ranking guidance now distinguishes unverified
+  scanner leads from evidence supporting confirmed high-severity issues.
+- [x] (2026-07-16) Follow-up: preserved structured findings, assumptions, and
+  warnings in bounded redacted conversation memory so follow-up questions can
+  use the prior interpretation without retaining or re-sending raw tool output.
 
 ## Surprises & Discoveries
 
@@ -184,6 +191,14 @@ A second tmux binding, Prefix then A, opens a read-only popup even when the curr
   model repeated an earlier audited answer claiming there were no findings.
   The ContextPacket placed `recent_turns` after `recent_output`, allowing stale
   model text to outweigh the current evidence even though redirection worked.
+- (2026-07-16) Once current evidence was analyzed, the model compressed six
+  ranked findings into one wrapped paragraph and described Nikto's conditional
+  BREACH header heuristic as a critical vulnerability. A single free-form
+  answer field could not guarantee readable ranking or evidence calibration.
+- (2026-07-16) The audit memory loader reconstructed each prior turn from only
+  `AssistantResponse.answer`. After findings became structured, a visible
+  ranking was therefore omitted from follow-up model context even though the
+  complete validated response remained in the audit row.
 
 ## Decision Log
 
@@ -298,6 +313,21 @@ A second tmux binding, Prefix then A, opens a read-only popup even when the curr
   evidence than earlier model interpretations. Excluding stale turns prevents
   feedback loops while leaving memory available for conversational requests
   and explanation requests with no new evidence.
+  Date/Author: 2026-07-16 / Codex.
+
+- Decision: Represent ranked security findings as a flat array of formatted
+  strings rather than nested finding objects.
+  Rationale: A flat string array remains compatible with the deliberately
+  simple Ollama wire schema while letting the application guarantee numbered
+  line-oriented rendering. Each item carries severity, title, impact, and
+  confidence/validation guidance in a prescribed readable format.
+  Date/Author: 2026-07-16 / Codex.
+
+- Decision: Reconstruct follow-up memory from answer, findings, assumptions,
+  and warnings, bounded to the existing 12,000-character turn limit.
+  Rationale: These validated redacted response fields carry the interpretation
+  needed for follow-ups without reintroducing sensitive raw terminal/file
+  context. Proposed commands remain outside conversational memory.
   Date/Author: 2026-07-16 / Codex.
 
 - Decision: Session identity uses a private runtime file keyed by a stable hash
@@ -423,6 +453,19 @@ that non-empty `recent_output` in explain mode is actual primary evidence and
 must not be described as absent. Context assembly now leaves `recent_turns`
 empty for that case. A pure regression test covers non-empty and whitespace-only
 explain input plus ordinary ask-mode behavior.
+
+The readable-findings follow-up is complete. Prompt version 5 requires ranking
+requests to use `findings` in descending severity and reserve high/critical
+labels for supporting evidence. `AssistantResponse` validates up to 50 finding
+lines, audit preparation sanitizes and redacts them, and the UI numbers them
+under a `Ranked findings` heading. Assumptions and warnings now render one item
+per line. A console-capture regression test verifies the exact layout.
+
+The structured-memory follow-up is complete. `AuditStore.recent_turns()` now
+serializes the prior answer and numbered findings plus assumption/warning
+bullets into `ConversationTurn.answer`, capped at 12,000 characters. The audit
+test proves a stored finding is available to the next turn while the seeded raw
+terminal secret remains absent from the database bytes.
 
 ## Context and Orientation
 

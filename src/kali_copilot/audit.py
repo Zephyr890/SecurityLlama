@@ -14,6 +14,23 @@ from kali_copilot.paths import ensure_private_directory
 SCHEMA_VERSION = 1
 
 
+def _response_memory(response: AssistantResponse) -> str:
+    """Serialize bounded response meaning for follow-ups without raw context."""
+    sections = [response.answer]
+    if response.findings:
+        sections.append(
+            "Ranked findings:\n"
+            + "\n".join(
+                f"{index}. {finding}" for index, finding in enumerate(response.findings, start=1)
+            )
+        )
+    if response.assumptions:
+        sections.append("Assumptions:\n" + "\n".join(f"- {item}" for item in response.assumptions))
+    if response.warnings:
+        sections.append("Warnings:\n" + "\n".join(f"- {item}" for item in response.warnings))
+    return "\n\n".join(sections)[:12000]
+
+
 class AuditStore:
     def __init__(self, path: Path) -> None:
         ensure_private_directory(path.parent)
@@ -102,13 +119,12 @@ class AuditStore:
             "ORDER BY created_at DESC LIMIT ?",
             (session_id, limit),
         ).fetchall()
-        turns = [
-            ConversationTurn(
-                question=str(question),
-                answer=AssistantResponse.model_validate_json(response_json).answer,
+        turns = []
+        for question, response_json in reversed(rows):
+            response = AssistantResponse.model_validate_json(response_json)
+            turns.append(
+                ConversationTurn(question=str(question), answer=_response_memory(response))
             )
-            for question, response_json in reversed(rows)
-        ]
         return turns
 
     def history(self, limit: int = 20) -> list[dict[str, object]]:

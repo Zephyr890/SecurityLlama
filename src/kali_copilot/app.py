@@ -101,6 +101,10 @@ def ask_model(
                     redact_secrets(strip_terminal_sequences(item)).text
                     for item in response.warnings
                 ],
+                "findings": [
+                    redact_secrets(strip_terminal_sequences(item)).text
+                    for item in response.findings
+                ],
                 "assumptions": [
                     redact_secrets(strip_terminal_sequences(item)).text
                     for item in response.assumptions

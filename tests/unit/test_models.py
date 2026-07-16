@@ -14,6 +14,7 @@ def response_data() -> dict[str, object]:
         "requires_root": False,
         "network_effect": "none",
         "target_candidates": [],
+        "findings": [],
         "warnings": [],
         "assumptions": [],
     }
@@ -37,3 +38,4 @@ def test_missing_metadata_defaults_safely() -> None:
     assert response.risk == "unknown"
     assert response.network_effect == "unknown"
     assert response.proposed_command is None
+    assert response.findings == []

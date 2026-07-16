@@ -30,6 +30,7 @@ def test_audit_omits_raw_context_and_supports_memory(tmp_path: Path) -> None:
         requires_root=False,
         network_effect="none",
         target_candidates=[],
+        findings=["MEDIUM — BREACH lead: compression side channel; validate exploit prerequisites"],
         warnings=[],
         assumptions=[],
     )
@@ -37,6 +38,8 @@ def test_audit_omits_raw_context_and_supports_memory(tmp_path: Path) -> None:
         store.record(packet, response, None, endpoint_host="127.0.0.1", model="fixture")
         turns = store.recent_turns("session", 4)
         assert turns[0].question == "What happened?"
+        assert "Ranked findings:" in turns[0].answer
+        assert "MEDIUM — BREACH lead" in turns[0].answer
         assert store.history()[0]["mode"] == "ask"
     assert database.stat().st_mode & 0o777 == 0o600
     assert b"SEEDED_RAW_SECRET_MUST_NOT_PERSIST" not in database.read_bytes()

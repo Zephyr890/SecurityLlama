@@ -14,12 +14,18 @@ def render_response(response: AssistantResponse, *, console: Console | None = No
     """Render validated response fields without interpreting command markup."""
     output = console or Console()
     output.print(sanitize_for_display(response.answer), markup=False)
+    if response.findings:
+        output.print("\nRanked findings", style="bold")
+        for index, finding in enumerate(response.findings, start=1):
+            output.print(f"  {index}. {sanitize_for_display(finding)}", markup=False)
     if response.assumptions:
-        assumptions = "; ".join(sanitize_for_display(item) for item in response.assumptions)
-        output.print("Assumptions: " + assumptions, markup=False)
+        output.print("\nAssumptions", style="bold")
+        for assumption in response.assumptions:
+            output.print(f"  - {sanitize_for_display(assumption)}", markup=False)
     if response.warnings:
-        warnings = "; ".join(sanitize_for_display(item) for item in response.warnings)
-        output.print("Warnings: " + warnings, style="yellow", markup=False)
+        output.print("\nWarnings", style="bold yellow")
+        for warning in response.warnings:
+            output.print(f"  - {sanitize_for_display(warning)}", style="yellow", markup=False)
     if response.proposed_command is not None:
         command = Text(
             sanitize_for_display(response.proposed_command), overflow="fold", no_wrap=False

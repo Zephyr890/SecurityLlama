@@ -65,6 +65,7 @@ class AssistantResponse(BoundaryModel):
     requires_root: bool | None = None
     network_effect: Literal["none", "passive", "active", "unknown"] = "unknown"
     target_candidates: list[str] = Field(default_factory=list, max_length=50)
+    findings: list[str] = Field(default_factory=list, max_length=50)
     warnings: list[str] = Field(default_factory=list, max_length=50)
     assumptions: list[str] = Field(default_factory=list, max_length=50)
 
