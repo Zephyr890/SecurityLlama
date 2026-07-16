@@ -31,3 +31,10 @@ def test_unknown_field_rejected() -> None:
     data["execute"] = True
     with pytest.raises(ValidationError):
         AssistantResponse.model_validate(data)
+
+
+def test_missing_metadata_defaults_safely() -> None:
+    response = AssistantResponse(answer="Review complete.")
+    assert response.risk == "unknown"
+    assert response.network_effect == "unknown"
+    assert response.proposed_command is None

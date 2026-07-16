@@ -76,6 +76,10 @@ A second tmux binding, Prefix then A, opens a read-only popup even when the curr
   workflow: concise direct answers, no generic safety lectures, and up to four
   concrete alternatives in answer text while retaining one validated command
   for optional shell insertion.
+- [x] (2026-07-16) Follow-up: made non-command response metadata safely
+  default when smaller local models omit fields in otherwise valid JSON;
+  missing risk and network classifications become `unknown`, and command
+  validation/insertion controls remain unchanged.
 - [x] (2026-07-16) Follow-up: performed a public-repository filesystem audit,
   removed ignored virtualenv/build/cache/runtime artifacts, and expanded
   ignore rules for local environment files, databases, swap files, and private

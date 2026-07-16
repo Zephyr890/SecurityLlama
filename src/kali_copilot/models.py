@@ -58,12 +58,12 @@ class AssistantResponse(BoundaryModel):
     answer: str = Field(min_length=1, max_length=12000)
     proposed_command: str | None = Field(default=None, max_length=16000)
     command_explanation: str | None = Field(default=None, max_length=8000)
-    risk: Literal["none", "low", "medium", "high", "critical", "unknown"]
-    requires_root: bool | None
-    network_effect: Literal["none", "passive", "active", "unknown"]
-    target_candidates: list[str] = Field(max_length=50)
-    warnings: list[str] = Field(max_length=50)
-    assumptions: list[str] = Field(max_length=50)
+    risk: Literal["none", "low", "medium", "high", "critical", "unknown"] = "unknown"
+    requires_root: bool | None = None
+    network_effect: Literal["none", "passive", "active", "unknown"] = "unknown"
+    target_candidates: list[str] = Field(default_factory=list, max_length=50)
+    warnings: list[str] = Field(default_factory=list, max_length=50)
+    assumptions: list[str] = Field(default_factory=list, max_length=50)
 
     @field_validator("proposed_command")
     @classmethod
