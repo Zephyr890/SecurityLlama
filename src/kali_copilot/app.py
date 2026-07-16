@@ -20,6 +20,11 @@ from kali_copilot.scope import active_scope
 from kali_copilot.session import current_session
 
 
+def should_include_recent_turns(mode: str, recent_output: str) -> bool:
+    """Keep stale memory from outweighing tool output supplied for explanation."""
+    return not (mode == "explain" and bool(recent_output.strip()))
+
+
 def make_basic_packet(
     mode: str,
     question: str,
@@ -74,7 +79,7 @@ def ask_model(
         "redactions": redacted_question.records + redacted_output.records + redacted_buffer.records,
         "active_scope": scope.summary() if scope else None,
     }
-    if config.audit.enabled:
+    if config.audit.enabled and should_include_recent_turns(mode, redacted_output.text):
         with AuditStore(paths.database_file) as store:
             updates["recent_turns"] = store.recent_turns(
                 packet.session_id, config.context.recent_turns

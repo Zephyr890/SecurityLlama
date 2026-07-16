@@ -116,6 +116,8 @@ def test_how_to_prompt_requires_actionable_command_details() -> None:
     assert "proposed_command should be non-null" in system_prompt
     assert "must include requested output options" in system_prompt
     assert "network_effect=active" in system_prompt
+    assert "non-empty recent_output is actual current tool output" in system_prompt
+    assert "never claim that no findings were supplied" in system_prompt
 
 
 def test_wrapped_json_is_validated_without_repair() -> None:

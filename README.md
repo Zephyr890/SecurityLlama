@@ -70,6 +70,10 @@ securityllama review "Review the current command."
 nmap-output-command | securityllama suggest "Propose one low-impact validation."
 ```
 
+When `explain` receives non-empty stdin, that current tool output is treated as
+primary evidence and prior conversation turns are omitted from the model request.
+This prevents an earlier interpretation from overriding newly supplied results.
+
 Management commands include:
 
 ```sh

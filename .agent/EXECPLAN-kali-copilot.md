@@ -111,6 +111,9 @@ A second tmux binding, Prefix then A, opens a read-only popup even when the curr
   keys, and added context-echo detection with a fresh compact repair. Endpoints
   that reject the flat schema with HTTP 400 fall back to JSON mode while local
   response validation remains mandatory.
+- [x] (2026-07-16) Follow-up: made non-empty stdin authoritative in `explain`
+  mode by omitting stale recent turns from that model request and explicitly
+  instructing the model to analyze `recent_output` as current tool evidence.
 
 ## Surprises & Discoveries
 
@@ -177,6 +180,10 @@ A second tmux binding, Prefix then A, opens a read-only popup even when the curr
   the ContextPacket beginning with `active_scope` and continuing through
   `recent_turns`. The failure was input echo reinforced by replaying the echo in
   repair, not merely malformed assistant JSON.
+- (2026-07-16) A valid Nikto result file was supplied through stdin, but the
+  model repeated an earlier audited answer claiming there were no findings.
+  The ContextPacket placed `recent_turns` after `recent_output`, allowing stale
+  model text to outweigh the current evidence even though redirection worked.
 
 ## Decision Log
 
@@ -283,6 +290,14 @@ A second tmux binding, Prefix then A, opens a read-only popup even when the curr
   it again. The specialized repair starts a fresh two-message exchange and
   supplies only the operator question, working directory, command buffer, and
   recent output as individually labelled JSON scalar values.
+  Date/Author: 2026-07-16 / Codex.
+
+- Decision: Omit conversational memory from `explain` requests that contain
+  non-whitespace `recent_output`.
+  Rationale: Tool output supplied for the current explanation is stronger
+  evidence than earlier model interpretations. Excluding stale turns prevents
+  feedback loops while leaving memory available for conversational requests
+  and explanation requests with no new evidence.
   Date/Author: 2026-07-16 / Codex.
 
 - Decision: Session identity uses a private runtime file keyed by a stable hash
@@ -402,6 +417,12 @@ regression fixture returns the truncated packet shape observed on Kali and
 proves that the client discards it, sends no echoed assistant turn, and accepts
 a valid compact repair. A separate transport test proves HTTP 400 schema
 rejection retries in JSON mode for older Ollama compatibility.
+
+The tool-output evidence-priority follow-up is complete. Prompt version 4 says
+that non-empty `recent_output` in explain mode is actual primary evidence and
+must not be described as absent. Context assembly now leaves `recent_turns`
+empty for that case. A pure regression test covers non-empty and whitespace-only
+explain input plus ordinary ask-mode behavior.
 
 ## Context and Orientation
 
