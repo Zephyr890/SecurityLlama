@@ -6,9 +6,13 @@ Build and maintain `securityllama`, a portable terminal copilot for authorized s
 
 ## Source of truth
 
-For the initial implementation, read `.agent/PLANS.md` and then implement `.agent/EXECPLAN-kali-copilot.md`. Treat the ExecPlan as a living document. Update its `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` sections whenever the state of the work changes.
+Committed source, tests, `README.md`, `SECURITY.md`, and the documents under
+`docs/` define public behavior. Internal plans and working notes may be kept
+locally and are not required in a fresh clone.
 
-When a task materially changes architecture, security controls, installation behavior, or user-visible behavior, update the ExecPlan before or alongside the code. Do not silently diverge from it.
+When a task materially changes architecture, security controls, installation
+behavior, or user-visible behavior, update the relevant committed documentation
+before or alongside the code. Do not silently diverge from documented behavior.
 
 ## Non-negotiable security invariants
 
@@ -25,7 +29,8 @@ When a task materially changes architecture, security controls, installation beh
 - Do not bind or reconfigure Ollama on the host. The application consumes a configured URL only.
 - Scope checking is advisory in version 1. Do not represent it as a complete network-enforcement boundary.
 
-A change that weakens one of these invariants requires an explicit new ExecPlan and human approval.
+A change that weakens one of these invariants requires a written design proposal
+and explicit human approval.
 
 ## Engineering conventions
 
@@ -51,6 +56,10 @@ That command must include formatting verification, linting, static type checking
 
 ## Working method
 
-Implement milestones in order and keep the application runnable after each milestone. Make small, reviewable commits when the environment permits. Do not stop after creating scaffolding or mocks: each completed milestone must demonstrate the user-visible behavior described in the ExecPlan.
+Implement changes incrementally and keep the application runnable after each
+stable milestone. Make small, reviewable commits when the environment permits.
+Do not stop after creating scaffolding or mocks: completed work must demonstrate
+the documented user-visible behavior.
 
-When an environmental limitation prevents a check, record the exact command, failure, and remaining verification in the ExecPlan rather than claiming success.
+When an environmental limitation prevents a check, report the exact command,
+failure, and remaining verification rather than claiming success.
