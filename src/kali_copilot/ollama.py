@@ -12,6 +12,7 @@ from pydantic import ValidationError
 from kali_copilot.config import AppConfig
 from kali_copilot.models import AssistantResponse, ContextPacket, ConversationTurn
 from kali_copilot.prompting import chat_messages
+from kali_copilot.sanitize import redact_secrets, sanitize_for_display
 
 
 class OllamaError(RuntimeError):
@@ -25,11 +26,53 @@ class ModelUnavailableError(OllamaError):
 class InvalidModelResponseError(OllamaError):
     exit_code = 5
 
+    def __init__(self, message: str, initial: ChatResult, repaired: ChatResult) -> None:
+        super().__init__(message)
+        self.initial = initial
+        self.repaired = repaired
+
+    def debug_report(self) -> str:
+        """Return bounded, escaped, redacted diagnostics for explicit debug mode."""
+        return "\n".join(
+            [
+                "Ollama structured-response diagnostics (model output redacted):",
+                _chat_result_diagnostic("initial", self.initial),
+                _chat_result_diagnostic("repair", self.repaired),
+            ]
+        )
+
 
 @dataclass(frozen=True)
 class HealthResult:
     reachable: bool
     message: str
+
+
+@dataclass(frozen=True)
+class ChatResult:
+    content: str
+    done: bool | None
+    done_reason: str | None
+    prompt_eval_count: int | None
+    eval_count: int | None
+
+
+def _optional_int(value: object) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _chat_result_diagnostic(label: str, result: ChatResult, max_chars: int = 4000) -> str:
+    cleaned = redact_secrets(sanitize_for_display(result.content)).text
+    truncated = len(cleaned) > max_chars
+    if truncated:
+        half = max_chars // 2
+        cleaned = cleaned[:half] + "\n...[debug preview truncated]...\n" + cleaned[-half:]
+    preview = json.dumps(cleaned, ensure_ascii=True)
+    return (
+        f"{label}: chars={len(result.content)} done={result.done!r} "
+        f"done_reason={result.done_reason!r} prompt_eval_count={result.prompt_eval_count!r} "
+        f"eval_count={result.eval_count!r} preview={preview}"
+    )
 
 
 def _response_error_summary(error: ValidationError | ValueError) -> str:
@@ -102,7 +145,9 @@ class OllamaClient:
         except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
             raise OllamaError(f"Ollama endpoint unavailable: {exc}") from exc
 
-    def _post_chat(self, messages: list[dict[str, str]], *, minimum_num_predict: int = 0) -> str:
+    def _post_chat(
+        self, messages: list[dict[str, str]], *, minimum_num_predict: int = 0
+    ) -> ChatResult:
         body: dict[str, Any] = {
             "model": self.config.ollama.model,
             "think": self.config.ollama.think,
@@ -121,7 +166,18 @@ class OllamaClient:
         try:
             response = self._client.post("/api/chat", json=body)
             response.raise_for_status()
-            return str(response.json()["message"]["content"])
+            payload = response.json()
+            return ChatResult(
+                content=str(payload["message"]["content"]),
+                done=payload.get("done") if isinstance(payload.get("done"), bool) else None,
+                done_reason=(
+                    payload.get("done_reason")
+                    if isinstance(payload.get("done_reason"), str)
+                    else None
+                ),
+                prompt_eval_count=_optional_int(payload.get("prompt_eval_count")),
+                eval_count=_optional_int(payload.get("eval_count")),
+            )
         except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
             raise OllamaError(f"Ollama chat request failed: {exc}") from exc
 
@@ -131,14 +187,14 @@ class OllamaClient:
                 f"configured model is unavailable: {self.config.ollama.model}"
             )
         messages = chat_messages(packet)
-        content = self._post_chat(messages)
+        initial = self._post_chat(messages)
         try:
-            return _validated_response(content)
+            return _validated_response(initial.content)
         except (ValidationError, ValueError) as first_error:
             validation_summary = _response_error_summary(first_error)
             repair = [
                 *messages,
-                {"role": "assistant", "content": content},
+                {"role": "assistant", "content": initial.content},
                 {
                     "role": "user",
                     "content": (
@@ -152,11 +208,13 @@ class OllamaClient:
             ]
             repaired = self._post_chat(repair, minimum_num_predict=512)
             try:
-                return _validated_response(repaired)
+                return _validated_response(repaired.content)
             except (ValidationError, ValueError) as exc:
                 raise InvalidModelResponseError(
                     "model returned invalid structured JSON after one repair: "
-                    + _response_error_summary(exc)
+                    + _response_error_summary(exc),
+                    initial,
+                    repaired,
                 ) from exc
 
     def summarize(self, previous_summary: str, turns: list[ConversationTurn]) -> str:
@@ -174,4 +232,4 @@ class OllamaClient:
             },
             {"role": "user", "content": f"UNTRUSTED_CONTEXT_DATA\n{data}"},
         ]
-        return self._post_chat(messages)[: self.config.context.summary_max_chars]
+        return self._post_chat(messages).content[: self.config.context.summary_max_chars]

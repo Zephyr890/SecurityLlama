@@ -147,12 +147,26 @@ def test_invalid_json_gets_exactly_one_repair() -> None:
         if request.url.path == "/api/tags":
             return httpx.Response(200, json={"models": [{"name": "fixture-model"}]})
         chat_calls += 1
-        return httpx.Response(200, json={"message": {"content": "{bad"}})
+        return httpx.Response(
+            200,
+            json={
+                "message": {"content": "api_key=abcdefghijklmnop {bad"},
+                "done": True,
+                "done_reason": "length",
+                "prompt_eval_count": 400,
+                "eval_count": 256,
+            },
+        )
 
     config = AppConfig(ollama=OllamaConfig(model="fixture-model"))
-    with pytest.raises(InvalidModelResponseError):
+    with pytest.raises(InvalidModelResponseError) as captured:
         OllamaClient(config, httpx.MockTransport(handler)).chat(packet())
     assert chat_calls == 2
+    report = captured.value.debug_report()
+    assert "done_reason='length'" in report
+    assert "eval_count=256" in report
+    assert "abcdefghijklmnop" not in report
+    assert "[REDACTED:token_assignment]" in report
 
 
 def test_missing_answer_repair_retains_request_and_ends_with_instruction() -> None:

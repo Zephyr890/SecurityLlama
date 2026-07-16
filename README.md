@@ -163,6 +163,16 @@ scope status, and audit writability independently. Exit code `3` means the
 endpoint is unavailable, `4` means the model is not listed, and `5` means two
 structured-response validations failed.
 
+For exit code 5, repeat the request with `--debug`. SecurityLlama prints bounded,
+terminal-sanitized, secret-redacted previews of the initial and repair model
+responses together with Ollama's `done_reason`, `prompt_eval_count`, and
+`eval_count`. The previews are written to stderr and are not added to the audit
+database. A `done_reason` of `length` indicates output truncation; an empty
+preview indicates that Ollama returned no message content; prose, thinking tags,
+or incomplete JSON in the preview indicate a model/format compatibility issue.
+Review redacted debug output before sharing it because target details are not
+treated as secrets automatically.
+
 After an update, rerun `./scripts/bootstrap-kali.sh` with the same explicit URL
 and model. To remove the package and managed shell blocks while preserving user
 configuration and audits:

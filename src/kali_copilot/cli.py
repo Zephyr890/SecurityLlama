@@ -23,7 +23,7 @@ from kali_copilot.context import ContextCollector
 from kali_copilot.doctor import run_doctor
 from kali_copilot.install import install_shell, remove_shell_blocks
 from kali_copilot.models import ShellWidgetResponse
-from kali_copilot.ollama import OllamaClient, OllamaError
+from kali_copilot.ollama import InvalidModelResponseError, OllamaClient, OllamaError
 from kali_copilot.paths import resolve_paths
 from kali_copilot.policy import assess_proposal
 from kali_copilot.sanitize import redact_secrets, sanitize_for_display
@@ -331,6 +331,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
     except OllamaError as exc:
         print(str(exc), file=sys.stderr)
+        if getattr(args, "debug", False) and isinstance(exc, InvalidModelResponseError):
+            print(exc.debug_report(), file=sys.stderr)
         return exc.exit_code
     except TmuxError as exc:
         print(str(exc), file=sys.stderr)

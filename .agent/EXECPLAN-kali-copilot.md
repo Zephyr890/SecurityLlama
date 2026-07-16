@@ -102,6 +102,10 @@ A second tmux binding, Prefix then A, opens a read-only popup even when the curr
   extracting one JSON object from prose or Markdown wrappers, recovering a
   missing answer from an otherwise valid command explanation, and granting a
   repair response at least 512 output tokens to avoid truncated JSON.
+- [x] (2026-07-16) Follow-up: made `--debug` useful for handled structured
+  response failures by reporting Ollama completion metadata and bounded,
+  terminal-sanitized, secret-redacted previews of both model attempts to
+  stderr without persisting them in audit storage.
 
 ## Surprises & Discoveries
 
@@ -160,6 +164,9 @@ A second tmux binding, Prefix then A, opens a read-only popup even when the curr
   returned `json_invalid`. Existing installations preserve their configuration,
   including the former 256-token generation limit, so a complete replacement
   object could still be truncated even though new example configs use 512.
+- (2026-07-16) The existing CLI `--debug` flag only re-raised unexpected
+  exceptions. Known `OllamaError` subclasses were caught first, so repeated
+  structured-response failures exposed no additional troubleshooting evidence.
 
 ## Decision Log
 
@@ -242,6 +249,14 @@ A second tmux binding, Prefix then A, opens a read-only popup even when the curr
   and promoting that explanation avoids a needless repair without interpreting
   free-form text as a command. Malformed or truncated objects still fail and
   receive the single bounded repair attempt.
+  Date/Author: 2026-07-16 / Codex.
+
+- Decision: Expose failed model content only on explicit `--debug`, as bounded
+  redacted stderr diagnostics with no persistent write.
+  Rationale: Completion reason and response shape are necessary to distinguish
+  truncation from empty, wrapped, or malformed model output. Terminal control
+  removal and likely-secret redaction preserve the display boundary, while an
+  explicit warning reminds operators that assessment targets are not secrets.
   Date/Author: 2026-07-16 / Codex.
 
 - Decision: Session identity uses a private runtime file keyed by a stable hash
@@ -346,6 +361,13 @@ model text is never interpreted or executed as shell syntax. Repair calls use
 `max(configured_num_predict, 512)` while ordinary calls retain the configured
 budget. Tests cover wrapped JSON, local missing-answer recovery, repair role
 ordering, the repair token floor, and rejection after one malformed repair.
+
+The structured-response diagnostics follow-up is complete. Failed initial and
+repair results retain only in-memory content long enough for the CLI to render
+an explicit debug report. The report includes character count, `done`,
+`done_reason`, prompt token count, generation token count, and an escaped
+4,000-character preview for each attempt. Tests prove the known-error CLI path
+prints the report and redacts a seeded token assignment.
 
 ## Context and Orientation
 
