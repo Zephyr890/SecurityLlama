@@ -170,6 +170,9 @@ responses together with Ollama's `done_reason`, `prompt_eval_count`, and
 database. A `done_reason` of `length` indicates output truncation; an empty
 preview indicates that Ollama returned no message content; prose, thinking tags,
 or incomplete JSON in the preview indicate a model/format compatibility issue.
+A preview beginning with ContextPacket fields such as `active_scope`, `cwd`, or
+`recent_turns` means the model echoed its input instead of producing an assistant
+response; current releases detect that pattern and retry from compact input.
 Review redacted debug output before sharing it because target details are not
 treated as secrets automatically.
 

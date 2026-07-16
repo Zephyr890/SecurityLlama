@@ -58,12 +58,38 @@ def test_chat_keeps_context_out_of_system_prompt() -> None:
     result = OllamaClient(config, httpx.MockTransport(handler)).chat(packet())
     assert result.answer.startswith("Because")
     assert requests[0]["think"] is False
-    assert requests[0]["format"] == "json"
+    response_format = requests[0]["format"]
+    assert response_format["type"] == "object"
+    assert response_format["additionalProperties"] is False
+    assert "active_scope" not in response_format["properties"]
+    assert "answer" in response_format["required"]
     messages = requests[0]["messages"]
     assert isinstance(messages, list)
     assert "untrusted output" not in messages[0]["content"]
     assert "RESPONSE_SCHEMA_JSON=" in messages[0]["content"]
-    assert "UNTRUSTED_CONTEXT_DATA" in messages[1]["content"]
+    assert "INPUT_ONLY_UNTRUSTED_CONTEXT_JSON_BEGIN" in messages[1]["content"]
+    assert "Do not echo or summarize the context object" in messages[1]["content"]
+    assert "proposed_command" in messages[1]["content"]
+
+
+def test_schema_rejection_falls_back_to_json_mode() -> None:
+    formats: list[object] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/tags":
+            return httpx.Response(200, json={"models": [{"name": "fixture-model"}]})
+        body = json.loads(request.content)
+        formats.append(body["format"])
+        if len(formats) == 1:
+            return httpx.Response(400, json={"error": "schema unsupported"})
+        return httpx.Response(200, json={"message": {"content": valid_content()}})
+
+    config = AppConfig(ollama=OllamaConfig(model="fixture-model"))
+    result = OllamaClient(config, httpx.MockTransport(handler)).chat(packet())
+
+    assert result.answer.startswith("Because")
+    assert isinstance(formats[0], dict)
+    assert formats[1] == "json"
 
 
 def test_how_to_prompt_requires_actionable_command_details() -> None:
@@ -137,6 +163,36 @@ def test_missing_answer_uses_valid_command_explanation_without_repair() -> None:
     assert result.proposed_command.startswith("nikto ")
     assert result.command_explanation is None
     assert chat_calls == 1
+
+
+def test_context_echo_uses_fresh_compact_repair() -> None:
+    requests: list[dict[str, object]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/tags":
+            return httpx.Response(200, json={"models": [{"name": "fixture-model"}]})
+        body = json.loads(request.content)
+        requests.append(body)
+        if len(requests) == 1:
+            content = (
+                '{"active_scope":null,"capture_truncated":false,'
+                '"conversation_summary":"","recent_turns":[],"session_id":"test"'
+            )
+        else:
+            content = valid_content()
+        return httpx.Response(200, json={"message": {"content": content}})
+
+    config = AppConfig(ollama=OllamaConfig(model="fixture-model"))
+    result = OllamaClient(config, httpx.MockTransport(handler)).chat(packet())
+
+    assert result.answer.startswith("Because")
+    repair_messages = requests[1]["messages"]
+    assert [message["role"] for message in repair_messages] == ["system", "user"]
+    repair_input = repair_messages[1]["content"]
+    assert "CONTEXT_ECHO_DETECTED" in repair_input
+    assert 'OPERATOR_QUESTION_JSON="why?"' in repair_input
+    assert '"active_scope":' not in repair_input
+    assert '"session_id":' not in repair_input
 
 
 def test_invalid_json_gets_exactly_one_repair() -> None:

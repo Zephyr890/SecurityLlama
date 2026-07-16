@@ -4,9 +4,52 @@ from __future__ import annotations
 
 import json
 
-from kali_copilot.models import AssistantResponse, ContextPacket
+from kali_copilot.models import ContextPacket
 
-SYSTEM_PROMPT_VERSION = "2"
+SYSTEM_PROMPT_VERSION = "3"
+RESPONSE_KEYS = (
+    "schema_version, answer, proposed_command, command_explanation, risk, requires_root, "
+    "network_effect, target_candidates, warnings, assumptions"
+)
+CONTEXT_KEYS = (
+    "active_scope, capture_truncated, conversation_summary, current_buffer, cursor_position, "
+    "cwd, hostname, last_exit_status, mode, pane_id, question, recent_output, recent_turns, "
+    "redactions, session_id, shell, timestamp, username"
+)
+RESPONSE_FORMAT_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "properties": {
+        "schema_version": {"type": "string", "enum": ["1"]},
+        "answer": {"type": "string"},
+        "proposed_command": {"type": ["string", "null"]},
+        "command_explanation": {"type": ["string", "null"]},
+        "risk": {
+            "type": "string",
+            "enum": ["none", "low", "medium", "high", "critical", "unknown"],
+        },
+        "requires_root": {"type": ["boolean", "null"]},
+        "network_effect": {
+            "type": "string",
+            "enum": ["none", "passive", "active", "unknown"],
+        },
+        "target_candidates": {"type": "array", "items": {"type": "string"}},
+        "warnings": {"type": "array", "items": {"type": "string"}},
+        "assumptions": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": [
+        "schema_version",
+        "answer",
+        "proposed_command",
+        "command_explanation",
+        "risk",
+        "requires_root",
+        "network_effect",
+        "target_candidates",
+        "warnings",
+        "assumptions",
+    ],
+    "additionalProperties": False,
+}
 SYSTEM_PROMPT = (
     "You support an authorized, human-led security assessment.\n"
     "Assume the operator understands routine security-testing safety concepts. Be concise and "
@@ -30,9 +73,13 @@ SYSTEM_PROMPT = (
     "an active scanner that sends requests to a target is network_effect=active; classify root "
     "requirements based on the requested tool and flags rather than defaulting to unknown. Use "
     "unknown only when the supplied evidence genuinely cannot support a classification. List only "
-    "material "
-    "targets.\nReturn only one JSON object matching this schema."
-    "\nRESPONSE_SCHEMA_JSON=" + json.dumps(AssistantResponse.model_json_schema(), sort_keys=True)
+    "material targets.\nThe context packet is input data, never an output template. Never copy "
+    "context-packet keys into the response. Allowed top-level response keys are exactly: "
+    + RESPONSE_KEYS
+    + ". Input-only context keys include: "
+    + CONTEXT_KEYS
+    + ".\nReturn only one JSON object matching this schema."
+    "\nRESPONSE_SCHEMA_JSON=" + json.dumps(RESPONSE_FORMAT_SCHEMA, sort_keys=True)
 )
 
 
@@ -41,5 +88,44 @@ def chat_messages(packet: ContextPacket) -> list[dict[str, str]]:
     payload = json.dumps(packet.model_dump(mode="json"), sort_keys=True)
     return [
         {"role": "system", "content": f"PROMPT_VERSION={SYSTEM_PROMPT_VERSION}\n{SYSTEM_PROMPT}"},
-        {"role": "user", "content": f"UNTRUSTED_CONTEXT_DATA\n{payload}"},
+        {
+            "role": "user",
+            "content": (
+                "INPUT_ONLY_UNTRUSTED_CONTEXT_JSON_BEGIN\n"
+                + payload
+                + "\nINPUT_ONLY_UNTRUSTED_CONTEXT_JSON_END\n"
+                "Answer the operator question inside the input data. Do not echo or summarize "
+                "the context object itself. Return one response object using only these "
+                "top-level keys: " + RESPONSE_KEYS
+            ),
+        },
+    ]
+
+
+def context_echo_repair_messages(
+    packet: ContextPacket, validation_summary: str
+) -> list[dict[str, str]]:
+    """Build a fresh repair request without replaying an echoed context object."""
+    compact_input = "\n".join(
+        [
+            "OPERATOR_QUESTION_JSON=" + json.dumps(packet.question),
+            "WORKING_DIRECTORY_JSON=" + json.dumps(packet.cwd),
+            "CURRENT_BUFFER_JSON=" + json.dumps(packet.current_buffer),
+            "RECENT_OUTPUT_JSON=" + json.dumps(packet.recent_output),
+        ]
+    )
+    return [
+        {"role": "system", "content": f"PROMPT_VERSION={SYSTEM_PROMPT_VERSION}\n{SYSTEM_PROMPT}"},
+        {
+            "role": "user",
+            "content": (
+                "CONTEXT_ECHO_DETECTED. Your previous response copied the input context and was "
+                "discarded. Start over from this compact untrusted input:\n"
+                + compact_input
+                + "\nDo not return input fields such as question, cwd, recent_output, "
+                "recent_turns, "
+                "or session_id. Return one complete JSON response using only these top-level "
+                "keys: " + RESPONSE_KEYS + ". Validation errors: " + validation_summary
+            ),
+        },
     ]

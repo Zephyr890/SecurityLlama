@@ -106,6 +106,11 @@ A second tmux binding, Prefix then A, opens a read-only popup even when the curr
   response failures by reporting Ollama completion metadata and bounded,
   terminal-sanitized, secret-redacted previews of both model attempts to
   stderr without persisting them in audit storage.
+- [x] (2026-07-16) Follow-up: constrained Ollama with a flat assistant-response
+  JSON schema, explicitly separated input-only ContextPacket keys from output
+  keys, and added context-echo detection with a fresh compact repair. Endpoints
+  that reject the flat schema with HTTP 400 fall back to JSON mode while local
+  response validation remains mandatory.
 
 ## Surprises & Discoveries
 
@@ -167,6 +172,11 @@ A second tmux binding, Prefix then A, opens a read-only popup even when the curr
 - (2026-07-16) The existing CLI `--debug` flag only re-raised unexpected
   exceptions. Known `OllamaError` subclasses were caught first, so repeated
   structured-response failures exposed no additional troubleshooting evidence.
+- (2026-07-16) Live diagnostics showed both generations ending at their exact
+  token budgets (`eval_count=256` and `512`, `done_reason=length`) while copying
+  the ContextPacket beginning with `active_scope` and continuing through
+  `recent_turns`. The failure was input echo reinforced by replaying the echo in
+  repair, not merely malformed assistant JSON.
 
 ## Decision Log
 
@@ -257,6 +267,22 @@ A second tmux binding, Prefix then A, opens a read-only popup even when the curr
   truncation from empty, wrapped, or malformed model output. Terminal control
   removal and likely-secret redaction preserve the display boundary, while an
   explicit warning reminds operators that assessment targets are not secrets.
+  Date/Author: 2026-07-16 / Codex.
+
+- Decision: Send a small flat assistant-response schema through Ollama's
+  `format` field and cache a JSON-mode fallback when the endpoint rejects it.
+  Rationale: Plain JSON mode permits any object, including a verbatim copy of
+  the ContextPacket. The flat schema constrains top-level keys without the
+  nested Pydantic features rejected by the live endpoint. Official Ollama
+  structured-output documentation recommends supplying the schema in both the
+  format field and prompt, which this implementation now does.
+  Date/Author: 2026-07-16 / Codex.
+
+- Decision: Do not replay a detected ContextPacket echo as an assistant turn.
+  Rationale: Replaying the copied packet caused the repair generation to copy
+  it again. The specialized repair starts a fresh two-message exchange and
+  supplies only the operator question, working directory, command buffer, and
+  recent output as individually labelled JSON scalar values.
   Date/Author: 2026-07-16 / Codex.
 
 - Decision: Session identity uses a private runtime file keyed by a stable hash
@@ -368,6 +394,14 @@ an explicit debug report. The report includes character count, `done`,
 `done_reason`, prompt token count, generation token count, and an escaped
 4,000-character preview for each attempt. Tests prove the known-error CLI path
 prints the report and redacts a seeded token assignment.
+
+The context-echo follow-up is complete. Prompt version 3 names the only allowed
+assistant keys after the input delimiter and explicitly labels all packet keys
+as input-only. The wire request uses the same flat schema as the prompt. A
+regression fixture returns the truncated packet shape observed on Kali and
+proves that the client discards it, sends no echoed assistant turn, and accepts
+a valid compact repair. A separate transport test proves HTTP 400 schema
+rejection retries in JSON mode for older Ollama compatibility.
 
 ## Context and Orientation
 

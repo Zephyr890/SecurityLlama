@@ -11,7 +11,11 @@ from pydantic import ValidationError
 
 from kali_copilot.config import AppConfig
 from kali_copilot.models import AssistantResponse, ContextPacket, ConversationTurn
-from kali_copilot.prompting import chat_messages
+from kali_copilot.prompting import (
+    RESPONSE_FORMAT_SCHEMA,
+    chat_messages,
+    context_echo_repair_messages,
+)
 from kali_copilot.sanitize import redact_secrets, sanitize_for_display
 
 
@@ -112,9 +116,21 @@ def _validated_response(content: str) -> AssistantResponse:
     return AssistantResponse.model_validate(value)
 
 
+def _looks_like_context_echo(content: str) -> bool:
+    markers = (
+        '"active_scope"',
+        '"capture_truncated"',
+        '"conversation_summary"',
+        '"recent_turns"',
+        '"session_id"',
+    )
+    return sum(marker in content for marker in markers) >= 3
+
+
 class OllamaClient:
     def __init__(self, config: AppConfig, transport: httpx.BaseTransport | None = None) -> None:
         self.config = config
+        self._schema_supported: bool | None = None
         self._client = httpx.Client(
             base_url=config.ollama.base_url,
             timeout=httpx.Timeout(
@@ -148,14 +164,15 @@ class OllamaClient:
     def _post_chat(
         self, messages: list[dict[str, str]], *, minimum_num_predict: int = 0
     ) -> ChatResult:
+        use_schema = self._schema_supported is not False
         body: dict[str, Any] = {
             "model": self.config.ollama.model,
             "think": self.config.ollama.think,
             "stream": False,
-            # Some Ollama releases reject nested Pydantic schemas with 400.
-            # Keep JSON mode at the wire boundary and enforce the complete
-            # response contract locally with Pydantic below.
-            "format": "json",
+            # This intentionally flat schema avoids the nested Pydantic schema
+            # rejected by some Ollama releases. A 400 response falls back to
+            # JSON mode for endpoint compatibility; local validation remains.
+            "format": RESPONSE_FORMAT_SCHEMA if use_schema else "json",
             "messages": messages,
             "options": {
                 "num_ctx": self.config.ollama.num_ctx,
@@ -165,7 +182,13 @@ class OllamaClient:
         }
         try:
             response = self._client.post("/api/chat", json=body)
+            if response.status_code == 400 and use_schema:
+                self._schema_supported = False
+                body["format"] = "json"
+                response = self._client.post("/api/chat", json=body)
             response.raise_for_status()
+            if use_schema and self._schema_supported is None:
+                self._schema_supported = True
             payload = response.json()
             return ChatResult(
                 content=str(payload["message"]["content"]),
@@ -192,20 +215,23 @@ class OllamaClient:
             return _validated_response(initial.content)
         except (ValidationError, ValueError) as first_error:
             validation_summary = _response_error_summary(first_error)
-            repair = [
-                *messages,
-                {"role": "assistant", "content": initial.content},
-                {
-                    "role": "user",
-                    "content": (
-                        "Your previous response failed schema validation. Re-answer the original "
-                        "request as one complete replacement JSON object. Include a non-empty "
-                        "answer field, preserve any other valid values, fix every listed error, "
-                        "and return JSON only with no Markdown. Validation errors: "
-                        + validation_summary
-                    ),
-                },
-            ]
+            if _looks_like_context_echo(initial.content):
+                repair = context_echo_repair_messages(packet, validation_summary)
+            else:
+                repair = [
+                    *messages,
+                    {"role": "assistant", "content": initial.content},
+                    {
+                        "role": "user",
+                        "content": (
+                            "Your previous response failed schema validation. Re-answer the "
+                            "original request as one complete replacement JSON object. Include a "
+                            "non-empty answer field, preserve any other valid values, fix every "
+                            "listed error, and return JSON only with no Markdown. Validation "
+                            "errors: " + validation_summary
+                        ),
+                    },
+                ]
             repaired = self._post_chat(repair, minimum_num_predict=512)
             try:
                 return _validated_response(repaired.content)
