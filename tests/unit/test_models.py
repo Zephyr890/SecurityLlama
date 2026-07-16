@@ -26,11 +26,10 @@ def test_multiline_command_rejected() -> None:
         AssistantResponse.model_validate(data)
 
 
-def test_unknown_field_rejected() -> None:
+def test_unknown_response_field_is_ignored() -> None:
     data = response_data()
     data["execute"] = True
-    with pytest.raises(ValidationError):
-        AssistantResponse.model_validate(data)
+    assert AssistantResponse.model_validate(data).answer == "Review complete."
 
 
 def test_missing_metadata_defaults_safely() -> None:

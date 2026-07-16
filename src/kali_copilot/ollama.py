@@ -116,7 +116,11 @@ class OllamaClient:
                 return AssistantResponse.model_validate_json(repaired)
             except ValidationError as exc:
                 raise InvalidModelResponseError(
-                    "model returned invalid structured JSON after one repair"
+                    "model returned invalid structured JSON after one repair: "
+                    + "; ".join(
+                        ".".join(str(part) for part in error["loc"]) + " (" + error["type"] + ")"
+                        for error in exc.errors()
+                    )
                 ) from exc
 
     def summarize(self, previous_summary: str, turns: list[ConversationTurn]) -> str:

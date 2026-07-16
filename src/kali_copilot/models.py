@@ -54,6 +54,9 @@ class ContextPacket(BoundaryModel):
 
 
 class AssistantResponse(BoundaryModel):
+    # Small local models sometimes add harmless metadata fields. Ignore only
+    # unknown response keys; all consumed fields remain strictly validated.
+    model_config = ConfigDict(extra="ignore", strict=True)
     schema_version: Literal["1"] = "1"
     answer: str = Field(min_length=1, max_length=12000)
     proposed_command: str | None = Field(default=None, max_length=16000)

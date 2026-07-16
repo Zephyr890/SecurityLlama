@@ -80,6 +80,9 @@ A second tmux binding, Prefix then A, opens a read-only popup even when the curr
   default when smaller local models omit fields in otherwise valid JSON;
   missing risk and network classifications become `unknown`, and command
   validation/insertion controls remain unchanged.
+- [x] (2026-07-16) Follow-up: made only the assistant response boundary ignore
+  unknown model metadata keys, while preserving strict validation of every
+  consumed field and reporting compact validation locations on final failure.
 - [x] (2026-07-16) Follow-up: performed a public-repository filesystem audit,
   removed ignored virtualenv/build/cache/runtime artifacts, and expanded
   ignore rules for local environment files, databases, swap files, and private
