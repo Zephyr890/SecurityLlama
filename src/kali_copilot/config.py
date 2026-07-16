@@ -42,6 +42,14 @@ class OllamaConfig(StrictModel):
         return value.rstrip("/")
 
 
+class TunnelConfig(StrictModel):
+    ssh_user: str = ""
+    ssh_host: str = ""
+    local_port: int = Field(11434, ge=1024, le=65535)
+    remote_host: str = "127.0.0.1"
+    remote_port: int = Field(11434, ge=1, le=65535)
+
+
 class ContextConfig(StrictModel):
     max_capture_lines: int = Field(200, ge=1, le=5000)
     max_capture_bytes: int = Field(65536, ge=1024, le=1_048_576)
@@ -78,6 +86,7 @@ class AuditConfig(StrictModel):
 
 class AppConfig(StrictModel):
     ollama: OllamaConfig = OllamaConfig()
+    tunnel: TunnelConfig = TunnelConfig()
     context: ContextConfig = ContextConfig()
     privacy: PrivacyConfig = PrivacyConfig()
     policy: PolicyConfig = PolicyConfig()
@@ -147,6 +156,7 @@ def update_ollama_fields(
     *,
     base_url: str | None = None,
     model: str | None = None,
+    think: bool | None = None,
     paths: AppPaths | None = None,
 ) -> Path:
     """Update only explicitly supplied Ollama fields while preserving the TOML file."""
@@ -160,7 +170,7 @@ def update_ollama_fields(
     section = ""
     replacements = {
         key: value
-        for key, value in {"base_url": base_url, "model": model}.items()
+        for key, value in {"base_url": base_url, "model": model, "think": think}.items()
         if value is not None
     }
     found: set[str] = set()
@@ -175,6 +185,68 @@ def update_ollama_fields(
                 found.add(key)
     if found != replacements.keys():
         raise ConfigError("configuration is missing the expected [ollama] fields")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    path.chmod(0o600)
+    load_config(resolved)
+    return path
+
+
+def update_tunnel_fields(
+    *,
+    ssh_user: str,
+    ssh_host: str,
+    local_port: int = 11434,
+    remote_host: str = "127.0.0.1",
+    remote_port: int = 11434,
+    paths: AppPaths | None = None,
+) -> Path:
+    """Update the operator-managed SSH tunnel settings."""
+    resolved = paths or resolve_paths()
+    path = initialize_config(resolved)
+    tunnel = TunnelConfig(
+        ssh_user=ssh_user.strip(),
+        ssh_host=ssh_host.strip(),
+        local_port=local_port,
+        remote_host=remote_host.strip(),
+        remote_port=remote_port,
+    )
+    if not tunnel.ssh_user or not tunnel.ssh_host:
+        raise ConfigError("SSH username and host cannot be empty")
+    lines = path.read_text(encoding="utf-8").splitlines()
+    section = ""
+    tunnel_section_seen = False
+    replacements = {
+        "ssh_user": tunnel.ssh_user,
+        "ssh_host": tunnel.ssh_host,
+        "local_port": tunnel.local_port,
+        "remote_host": tunnel.remote_host,
+        "remote_port": tunnel.remote_port,
+    }
+    found: set[str] = set()
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            section = stripped[1:-1]
+            tunnel_section_seen = tunnel_section_seen or section == "tunnel"
+        if section == "tunnel" and "=" in line:
+            key = line.split("=", 1)[0].strip()
+            if key in replacements:
+                lines[index] = f"{key} = {json.dumps(replacements[key])}"
+                found.add(key)
+    if not tunnel_section_seen:
+        lines.extend(
+            [
+                "",
+                "[tunnel]",
+                f"ssh_user = {json.dumps(tunnel.ssh_user)}",
+                f"ssh_host = {json.dumps(tunnel.ssh_host)}",
+                f"local_port = {tunnel.local_port}",
+                f"remote_host = {json.dumps(tunnel.remote_host)}",
+                f"remote_port = {tunnel.remote_port}",
+            ]
+        )
+    elif found != replacements.keys():
+        raise ConfigError("configuration is missing the expected [tunnel] fields")
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     path.chmod(0o600)
     load_config(resolved)

@@ -10,6 +10,14 @@ num_ctx = 4096
 num_predict = 768
 temperature = 0.2
 
+[tunnel]
+# Operator-managed SSH local forward from Kali to Ollama on the Mac host.
+ssh_user = ""
+ssh_host = ""
+local_port = 11434
+remote_host = "127.0.0.1"
+remote_port = 11434
+
 # Terminal context is bounded independently by lines and UTF-8 bytes.
 [context]
 max_capture_lines = 200

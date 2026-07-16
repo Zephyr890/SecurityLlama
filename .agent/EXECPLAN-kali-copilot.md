@@ -58,6 +58,13 @@ A second tmux binding, Prefix then A, opens a read-only popup even when the curr
 - [x] (2026-07-16) Follow-up: added an upgrade path that removes the former
   pipx package and replaces legacy shell-managed blocks without deleting user
   configuration or audit data.
+- [x] (2026-07-16) Follow-up: added the interactive `securityllama setup`
+  wizard for Ollama configuration, shell integration, and post-setup checks.
+- [x] (2026-07-16) Follow-up: added `scripts/bootstrap-kali.sh --wizard` so a
+  fresh checkout can install the package and immediately enter guided setup.
+- [x] (2026-07-16) Follow-up: extended setup with operator-managed SSH tunnel
+  settings and a `securityllama tunnel command` renderer; credentials and SSH
+  process management remain outside the application.
 
 ## Surprises & Discoveries
 

@@ -8,6 +8,7 @@ scope=""
 no_apt=false
 dev=false
 non_interactive=false
+wizard=false
 
 while (($#)); do
   case "$1" in
@@ -17,6 +18,7 @@ while (($#)); do
     --no-apt) no_apt=true; shift ;;
     --dev) dev=true; shift ;;
     --non-interactive) non_interactive=true; shift ;;
+    --wizard) wizard=true; shift ;;
     *) printf 'Unknown option: %s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -53,6 +55,15 @@ install_args=(install --force)
 if [[ $dev == true ]]; then install_args+=(--editable); fi
 pipx "${install_args[@]}" "$repo_root"
 export PATH="$HOME/.local/bin:$PATH"
+
+if [[ $wizard == true ]]; then
+  if [[ -n $ollama_url || -n $model || -n $scope ]]; then
+    printf '%s\n' '--wizard cannot be combined with --ollama-url, --model, or --scope.' >&2
+    exit 2
+  fi
+  securityllama setup
+  exit $?
+fi
 
 config_args=(config init)
 [[ -n $ollama_url ]] && config_args+=(--ollama-url "$ollama_url")

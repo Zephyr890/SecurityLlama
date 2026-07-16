@@ -22,6 +22,27 @@ tmux new -s assessment
 securityllama doctor
 ```
 
+For an interactive setup after installation, run:
+
+```sh
+securityllama setup
+```
+
+On a fresh checkout, the install-and-setup wizard can be run directly with:
+
+```sh
+./scripts/bootstrap-kali.sh --wizard
+```
+
+The wizard configures the Ollama URL and model, keeps extended thinking
+disabled by default for faster CPU responses, installs shell integration, and
+runs the same diagnostics as `securityllama doctor`. It also records the Mac
+SSH tunnel details and prints the command to run manually. Show it later with:
+
+```sh
+securityllama tunnel command
+```
+
 The default Ollama request disables Qwen-style extended thinking for a faster
 interactive experience on CPU-only hosts. Set `[ollama].think = true` in
 `~/.config/securityllama/config.toml` when deeper reasoning is worth the added

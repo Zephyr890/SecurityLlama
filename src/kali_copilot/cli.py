@@ -4,13 +4,21 @@ from __future__ import annotations
 
 import argparse
 import json
+import shlex
 import sys
 from collections.abc import Sequence
 
 from kali_copilot import __version__
 from kali_copilot.app import ask_model, make_basic_packet
 from kali_copilot.audit import AuditStore
-from kali_copilot.config import ConfigError, initialize_config, load_config, update_ollama_fields
+from kali_copilot.config import (
+    AppConfig,
+    ConfigError,
+    initialize_config,
+    load_config,
+    update_ollama_fields,
+    update_tunnel_fields,
+)
 from kali_copilot.context import ContextCollector
 from kali_copilot.doctor import run_doctor
 from kali_copilot.install import install_shell, remove_shell_blocks
@@ -30,6 +38,60 @@ from kali_copilot.shell_bridge import (
 )
 from kali_copilot.tmux import TmuxError, copy_to_buffer
 from kali_copilot.ui import render_response
+
+
+def _ask_with_default(prompt_text: str, default: str) -> str:
+    """Read a setup answer while showing the selected default."""
+    answer = input(f"{prompt_text} [{default}]: ").strip()
+    return answer or default
+
+
+def _run_setup() -> int:
+    """Interactively configure Ollama and install shell integration."""
+    try:
+        config = load_config()
+    except ConfigError:
+        initialize_config()
+        config = load_config()
+    print("SecurityLlama setup")
+    print("Press Enter to accept a default. The SSH tunnel must already be running.\n")
+    base_url = _ask_with_default("Ollama URL", config.ollama.base_url)
+    model = _ask_with_default("Model", config.ollama.model)
+    default_think = "y" if config.ollama.think else "n"
+    think_answer = _ask_with_default("Enable extended thinking? (y/n)", default_think)
+    think = think_answer.lower() in {"y", "yes"}
+    path = update_ollama_fields(base_url=base_url, model=model, think=think)
+    tunnel_user = _ask_with_default("Mac SSH username", config.tunnel.ssh_user or "admin")
+    tunnel_host = _ask_with_default("Mac host-only IP", config.tunnel.ssh_host or "192.168.56.100")
+    update_tunnel_fields(ssh_user=tunnel_user, ssh_host=tunnel_host)
+    print(f"Configuration saved to {path}")
+    for installed in install_shell():
+        print(f"Installed shell asset: {installed}")
+    print("\nChecking the setup...")
+    checks = run_doctor()
+    for check in checks:
+        status = "PASS" if check.passed else ("WARN" if not check.required else "FAIL")
+        print(f"[{status}] {check.name}: {check.message}")
+    print("\nStart the Ollama tunnel in a separate Kali terminal:")
+    print(_tunnel_command(load_config()))
+    return 0 if all(check.passed or not check.required for check in checks) else 2
+
+
+def _tunnel_command(config: AppConfig) -> str:
+    """Render the configured SSH forward without executing it."""
+    tunnel = config.tunnel
+    if not tunnel.ssh_user or not tunnel.ssh_host:
+        raise ConfigError("run `securityllama setup` to configure the SSH tunnel first")
+    args = [
+        "ssh",
+        "-N",
+        "-o",
+        "ExitOnForwardFailure=yes",
+        "-L",
+        f"127.0.0.1:{tunnel.local_port}:{tunnel.remote_host}:{tunnel.remote_port}",
+        f"{tunnel.ssh_user}@{tunnel.ssh_host}",
+    ]
+    return shlex.join(args)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -86,6 +148,10 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("install-shell")
     subparsers.add_parser("uninstall-shell")
     subparsers.add_parser("doctor")
+    subparsers.add_parser("setup", help="configure Ollama and install shell integration")
+    tunnel_parser = subparsers.add_parser("tunnel", help="show the configured Ollama SSH tunnel")
+    tunnel_subparsers = tunnel_parser.add_subparsers(dest="tunnel_command", required=True)
+    tunnel_subparsers.add_parser("command", help="print the SSH tunnel command")
     subparsers.add_parser("redact")
     return parser
 
@@ -139,6 +205,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                 status = "PASS" if check.passed else ("WARN" if not check.required else "FAIL")
                 print(f"[{status}] {check.name}: {check.message}")
             return 0 if all(check.passed or not check.required for check in checks) else 2
+        if args.command == "setup":
+            return _run_setup()
+        if args.command == "tunnel":
+            if args.tunnel_command == "command":
+                print(_tunnel_command(load_config()))
+            return 0
         if args.command == "redact":
             redact_result = redact_secrets(sanitize_for_display(sys.stdin.read()))
             sys.stdout.write(redact_result.text)
