@@ -7,7 +7,7 @@ think = false
 connect_timeout_seconds = 3.0
 response_timeout_seconds = 120.0
 num_ctx = 4096
-num_predict = 256
+num_predict = 512
 temperature = 0.2
 
 [tunnel]

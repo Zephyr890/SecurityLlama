@@ -66,6 +66,32 @@ def test_chat_keeps_context_out_of_system_prompt() -> None:
     assert "UNTRUSTED_CONTEXT_DATA" in messages[1]["content"]
 
 
+def test_how_to_prompt_requires_actionable_command_details() -> None:
+    requests: list[dict[str, object]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/tags":
+            return httpx.Response(200, json={"models": [{"name": "fixture-model"}]})
+        requests.append(json.loads(request.content))
+        return httpx.Response(200, json={"message": {"content": valid_content()}})
+
+    config = AppConfig(ollama=OllamaConfig(model="fixture-model"))
+    question_packet = packet().model_copy(
+        update={
+            "question": (
+                "Advise how to begin a Nikto scan for my web app and write results to "
+                "/Desktop/test_assesment/recon"
+            )
+        }
+    )
+    OllamaClient(config, httpx.MockTransport(handler)).chat(question_packet)
+    system_prompt = requests[0]["messages"][0]["content"]
+    assert "Preserve explicit paths and filenames exactly" in system_prompt
+    assert "proposed_command should be non-null" in system_prompt
+    assert "must include requested output options" in system_prompt
+    assert "network_effect=active" in system_prompt
+
+
 def test_invalid_json_gets_exactly_one_repair() -> None:
     chat_calls = 0
 

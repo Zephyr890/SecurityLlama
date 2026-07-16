@@ -88,6 +88,12 @@ A second tmux binding, Prefix then A, opens a read-only popup even when the curr
   ignore rules for local environment files, databases, swap files, and private
   key material. Tracked files and reachable commit history contained no real
   credentials or private keys; secret-looking sanitizer fixtures are synthetic.
+- [x] (2026-07-16) Follow-up: strengthened the Ollama response contract for
+  concrete how-to requests so the model must preserve explicit output paths,
+  provide a ready-to-edit command using a placeholder when the target is
+  missing, explain important flags, and classify active scanners' network
+  effect. The example generation budget is now 512 tokens to leave room for
+  validated JSON plus an actionable answer.
 
 ## Surprises & Discoveries
 
@@ -134,6 +140,10 @@ A second tmux binding, Prefix then A, opens a read-only popup even when the curr
   could not start because that bundled interpreter has no `ruff` module. The
   earlier full check evidence remains recorded above; this cleanup change was
   validated with Git whitespace, shell syntax, and repository-content checks.
+- (2026-07-16) The host system Python 3.9 environment has no pytest module, so
+  a direct `PYTHONPATH=src python3 -m pytest tests/unit/test_ollama.py` could
+  not start. The repository `.venv` Python 3.12 runtime ran the complete
+  `make check` successfully after the prompt and config changes.
 
 ## Decision Log
 
@@ -191,6 +201,14 @@ A second tmux binding, Prefix then A, opens a read-only popup even when the curr
   Rationale: These files are machine- or operator-specific and are not needed
   to clone and bootstrap a fresh Kali VM; ignoring them reduces accidental
   publication without weakening the application's runtime behavior.
+  Date/Author: 2026-07-16 / Codex.
+
+- Decision: Treat explicit operational details in a concrete question as
+  response-contract requirements, not optional prose guidance.
+  Rationale: Smaller local models were returning generic installation advice
+  while omitting the requested output path and proposed command. The prompt
+  now requires those details to be reflected in the validated response while
+  preserving the existing no-execution boundary.
   Date/Author: 2026-07-16 / Codex.
 
 - Decision: Session identity uses a private runtime file keyed by a stable hash
@@ -272,6 +290,15 @@ synthetic secret-pattern fixtures in `tests/unit/test_sanitize.py`; no real
 credential material was found in reachable commits.
 `docs/MANUAL_ACCEPTANCE.md` distinguishes the remaining fresh-Kali interactive
 ZLE/Readline/tmux observations; those have not been claimed as passing.
+
+The response-quality follow-up is complete. `SYSTEM_PROMPT_VERSION=2` now
+requires concrete how-to answers to preserve requested paths, include a
+single ready-to-edit command, use an explicit target placeholder when needed,
+and provide specific command explanations and metadata. A regression test
+asserts these instructions are present in the Ollama system message. On
+2026-07-16, `make check PYTHON=.venv/bin/python` passed with 27 tests; the
+separate system-Python pytest attempt was unavailable because that interpreter
+does not provide pytest, as recorded above.
 
 ## Context and Orientation
 
