@@ -1,0 +1,43 @@
+# Ollama is expected to be local to Kali or reached through an operator-managed tunnel.
+[ollama]
+base_url = "http://127.0.0.1:11434"
+model = "qwen2.5-coder:3b"
+connect_timeout_seconds = 3.0
+response_timeout_seconds = 120.0
+num_ctx = 4096
+num_predict = 768
+temperature = 0.2
+
+# Terminal context is bounded independently by lines and UTF-8 bytes.
+[context]
+max_capture_lines = 200
+max_capture_bytes = 65536
+max_question_chars = 4000
+recent_turns = 4
+summary_trigger_turns = 8
+summary_max_chars = 1200
+
+# Redaction is enabled and raw terminal context is not persisted by default.
+[privacy]
+redact_secrets = true
+store_raw_context = false
+allow_public_endpoint = false
+allow_insecure_tls = false
+
+# Scope checks are conservative warnings, not a network security boundary.
+[policy]
+require_scope_for_network_insert = true
+allow_out_of_scope_insert = false
+require_second_confirmation_for_high_risk = true
+
+# Popup size is a percentage of the current tmux client dimensions.
+[ui]
+popup_width_percent = 92
+popup_height_percent = 85
+shell_hotkey = "alt-a"
+tmux_binding = "A"
+
+# Audits retain redacted metadata and validated responses, never raw context by default.
+[audit]
+enabled = true
+retention_days = 90

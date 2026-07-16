@@ -1,2 +1,160 @@
-# SecurityLlama
-Local model TMUX style harness for NIX OS VMs. Allows for integration and context of local AI to terminal and security testing results.
+# kali-copilot
+
+`kali-copilot` is a terminal assistant for authorized security testing in Kali
+Linux VMs. It sends bounded, sanitized context to an operator-configured Ollama
+endpoint and can place a proposed command into an editable zsh or Bash prompt.
+
+The application never executes a model-generated command. A human must inspect
+the exact proposal and press Enter in their ordinary shell. Scope classification
+is advisory and is not a firewall or proof of authorization.
+
+## Install on Kali
+
+Ollama and the selected model must already be available locally or through an
+operator-managed tunnel. From a clone:
+
+```sh
+./scripts/bootstrap-kali.sh \
+  --ollama-url http://127.0.0.1:11434 \
+  --model qwen2.5-coder:3b
+exec "$SHELL" -l
+tmux new -s assessment
+kali-copilot doctor
+```
+
+The bootstrap installs only required Debian packages, installs this package with
+pipx, preserves existing configuration, backs up changed shell files, and is
+safe to rerun after `git pull`. Use `--no-apt` when dependencies are already
+managed, `--dev` for an editable pipx install, or `--scope NAME` to create/select
+a restrictive scope template.
+
+## Use
+
+At a zsh or Bash prompt, Alt-A reviews the exact editable command buffer. A
+validated proposal can be assigned to the prompt after confirmation; the
+operator must still press Enter. Prefix then A opens the read-only tmux popup,
+whose proposals can only be copied into a tmux paste buffer.
+
+Non-interactive modes also accept bounded context on stdin:
+
+```sh
+kali-copilot ask "What does this failure imply?"
+journalctl -n 50 | kali-copilot explain "Identify the likely failure boundary."
+kali-copilot review "Review the current command."
+nmap-output-command | kali-copilot suggest "Propose one low-impact validation."
+```
+
+Management commands include:
+
+```sh
+kali-copilot config init
+kali-copilot session new
+kali-copilot session status
+kali-copilot session clear
+kali-copilot scope init lab01
+kali-copilot scope use lab01
+kali-copilot scope show
+kali-copilot history
+kali-copilot redact < captured-output.txt
+```
+
+Edit a scope file under `~/.config/kali-copilot/scopes/` to add the CIDRs,
+domains, and permissions actually authorized for an engagement. New scope files
+are unauthorized by default. Scope analysis is conservative: substitutions,
+interpreters, scripts, redirects, or unclear targets produce an `unknown`
+warning. Out-of-scope insertion is disabled by default.
+
+## Development
+
+Python 3.11 or newer is required:
+
+```sh
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install -e '.[dev]'
+make check
+```
+
+Start the local fixture service without external network access:
+
+```sh
+make fake-ollama
+curl http://127.0.0.1:11435/api/tags
+```
+
+Its `--fixture` option supports `success`, `proposal`, `malformed_json`,
+`timeout`, `missing_model`, and `control_sequences` responses.
+
+`make check` runs formatting verification, linting, strict type checking, tests,
+and shell checks without contacting external services. `make smoke-kali` runs
+the install/idempotence/uninstall workflow in `kalilinux/kali-rolling` when a
+Docker daemon is available.
+
+## Kali in VirtualBox
+
+The safest default is to run Ollama inside the VM at `127.0.0.1`, or keep
+Ollama bound to loopback on the host and use an operator-managed SSH tunnel.
+With a VirtualBox host-only adapter, a representative tunnel from Kali is:
+
+```sh
+ssh -N \
+  -L 127.0.0.1:11434:127.0.0.1:11434 \
+  <host-user>@<host-only-host-ip>
+```
+
+Then configure `kali-copilot` for `http://127.0.0.1:11434`. Do not expose
+Ollama on a bridged or public interface merely to make the VM connect. The
+project does not modify VirtualBox, host firewall, SSH, or Ollama settings.
+
+## Trust boundary
+
+Terminal captures, banners, files, and model output are untrusted. The finished
+application strips terminal controls, redacts likely secrets, bounds context,
+validates structured model responses, and stores no raw terminal context by
+default. It cannot determine whether a real-world action is authorized; that
+responsibility remains with the operator.
+
+The architecture keeps five boundaries separate:
+
+1. Shell/tmux integration captures only explicit, bounded context.
+2. Sanitization removes terminal controls and redacts likely secrets.
+3. Ollama receives a versioned JSON packet labelled as untrusted data.
+4. Pydantic validates the structured response before display or insertion.
+5. Local policy and audit code assess inert command text and persist only
+   redacted metadata plus a context hash.
+
+Session memory includes a bounded number of redacted question/answer turns, not
+historical terminal captures. Audits default to
+`~/.local/share/kali-copilot/sessions.db`, mode `0600`, and omit raw context.
+Set `[audit].enabled = false` to disable both audit records and persistent recent
+turn memory.
+
+## Troubleshooting and removal
+
+Run `kali-copilot doctor` first. It reports configuration, private-directory
+permissions, tmux, shell sourcing, endpoint reachability, model availability,
+scope status, and audit writability independently. Exit code `3` means the
+endpoint is unavailable, `4` means the model is not listed, and `5` means two
+structured-response validations failed.
+
+After an update, rerun `./scripts/bootstrap-kali.sh` with the same explicit URL
+and model. To remove the package and managed shell blocks while preserving user
+configuration and audits:
+
+```sh
+./scripts/uninstall.sh
+```
+
+Permanent deletion requires `--purge` and an explicit `PURGE` confirmation.
+For automated removal, both `--non-interactive` and `--confirm-purge` are
+required.
+
+## Limitations
+
+This tool cannot establish authorization, fully parse shell semantics, enforce a
+network boundary, detect every secret, or guarantee model accuracy. It does not
+install Ollama, download models, modify VirtualBox networking, open firewalls,
+manage SSH, escalate privileges, or execute proposed commands. The operator is
+responsible for authorization, evidence handling, and normal shell execution.
+
+See [SECURITY.md](SECURITY.md) for security guarantees and reporting guidance.

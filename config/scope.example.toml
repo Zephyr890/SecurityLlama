@@ -1,0 +1,14 @@
+name = "lab01"
+authorized = true
+allowed_cidrs = ["10.10.10.0/24"]
+allowed_domains = ["*.lab.test", "app01.example.test"]
+permissions = [
+  "passive_recon",
+  "active_scanning",
+  "service_validation",
+]
+denied_categories = [
+  "destructive_action",
+  "persistence",
+  "credential_attack",
+]
