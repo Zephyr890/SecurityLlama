@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from kali_copilot.paths import AppPaths, ensure_private_directory, resolve_paths
 
@@ -75,18 +75,20 @@ class PolicyConfig(StrictModel):
 
 
 class UIConfig(StrictModel):
-    popup_width_percent: int = Field(92, ge=30, le=100)
-    popup_height_percent: int = Field(85, ge=30, le=100)
     shell_hotkey: str = "alt-a"
     tmux_binding: str = "A"
-    insert_hotkey: str = "alt-i"
-    ask_hotkey: str = "alt-o"
-    proposal_ttl_seconds: int = Field(300, ge=15, le=3600)
     reduced_motion: bool = False
     monochrome: bool = False
     completion_bell: bool = False
+    # Accepted only so existing configuration files remain valid after the
+    # popup-to-chat migration. Installation no longer binds or uses them.
+    popup_width_percent: int = Field(92, ge=30, le=100, exclude=True)
+    popup_height_percent: int = Field(85, ge=30, le=100, exclude=True)
+    insert_hotkey: str | None = Field(None, exclude=True)
+    ask_hotkey: str | None = Field(None, exclude=True)
+    proposal_ttl_seconds: int = Field(300, ge=15, le=3600, exclude=True)
 
-    @field_validator("shell_hotkey", "insert_hotkey", "ask_hotkey")
+    @field_validator("shell_hotkey")
     @classmethod
     def valid_alt_hotkey(cls, value: str) -> str:
         lowered = value.lower()
@@ -101,12 +103,12 @@ class UIConfig(StrictModel):
             raise ValueError("must be one alphanumeric key")
         return value
 
-    @model_validator(mode="after")
-    def distinct_shell_hotkeys(self) -> UIConfig:
-        values = {self.shell_hotkey, self.insert_hotkey, self.ask_hotkey}
-        if len(values) != 3:
-            raise ValueError("shell, insert, and ask hotkeys must be distinct")
-        return self
+    @field_validator("insert_hotkey", "ask_hotkey")
+    @classmethod
+    def valid_legacy_alt_hotkey(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return cls.valid_alt_hotkey(value)
 
 
 class ModelProfile(StrictModel):

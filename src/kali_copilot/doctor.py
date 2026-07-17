@@ -80,6 +80,17 @@ def run_doctor() -> list[DoctorCheck]:
             "managed block found" if sourced else "run `securityllama install-shell`",
         )
     )
+    tmux_config = home / ".tmux.conf"
+    tmux_sourced = tmux_config.exists() and BEGIN in tmux_config.read_text(encoding="utf-8")
+    checks.append(
+        DoctorCheck(
+            "tmux chat binding",
+            tmux_sourced,
+            "managed Prefix binding found"
+            if tmux_sourced
+            else "run `securityllama install-shell`, then `tmux source-file ~/.tmux.conf`",
+        )
+    )
     client = OllamaClient(config)
     try:
         models = client.list_models()

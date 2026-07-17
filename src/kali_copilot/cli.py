@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shlex
 import sys
 from collections.abc import Sequence
+from contextlib import suppress
 
 from kali_copilot import __version__
 from kali_copilot.app import ask_model, make_basic_packet
@@ -38,7 +40,7 @@ from kali_copilot.shell_bridge import (
     read_request,
     write_response,
 )
-from kali_copilot.tmux import TmuxError, copy_to_buffer
+from kali_copilot.tmux import TmuxError, copy_to_buffer, display_message, open_chat_window
 from kali_copilot.ui import render_command_diff, render_response
 
 
@@ -167,8 +169,16 @@ def build_parser() -> argparse.ArgumentParser:
     scope_show.add_argument("name", nargs="?")
     history_parser = subparsers.add_parser("history")
     history_parser.add_argument("--limit", type=int, default=20)
-    cockpit_parser = subparsers.add_parser("cockpit", help="open the multi-turn tmux cockpit")
+    chat_parser = subparsers.add_parser("chat", help="run the persistent terminal chat")
+    chat_parser.add_argument("--pane")
+    cockpit_parser = subparsers.add_parser("cockpit", help="legacy alias for terminal chat")
     cockpit_parser.add_argument("--pane", required=True)
+    open_chat_parser = subparsers.add_parser(
+        "_open-chat", help="internal tmux chat-window launcher"
+    )
+    open_chat_parser.add_argument("--pane", required=True)
+    open_chat_parser.add_argument("--cwd", required=True)
+    open_chat_parser.add_argument("--executable", required=True)
     note_parser = subparsers.add_parser("note", help="add a redacted operator note")
     note_parser.add_argument("text")
     note_parser.add_argument("--bookmark", action="store_true")
@@ -248,10 +258,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             else:
                 print(content)
             return 0
-        if args.command == "cockpit":
+        if args.command == "_open-chat":
+            open_chat_window(pane_id=args.pane, cwd=args.cwd, executable=args.executable)
+            return 0
+        if args.command in {"chat", "cockpit"}:
             from kali_copilot.cockpit import Cockpit
 
-            return Cockpit(load_config(), args.pane).run()
+            pane = args.pane or os.environ.get("TMUX_PANE")
+            if not pane:
+                raise TmuxError("terminal chat requires tmux or an explicit --pane")
+            return Cockpit(load_config(), pane).run()
         if args.command == "install-shell":
             for path in install_shell():
                 print(path)
@@ -418,6 +434,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(exc.debug_report(), file=sys.stderr)
         return exc.exit_code
     except TmuxError as exc:
+        if getattr(args, "command", None) == "_open-chat":
+            with suppress(TmuxError):
+                display_message(f"SecurityLlama chat failed: {exc}")
         print(str(exc), file=sys.stderr)
         return 6
     except ShellBridgeError as exc:

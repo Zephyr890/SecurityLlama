@@ -1,8 +1,8 @@
 # Manual acceptance transcript
 
 Automated evidence on 2026-07-16 is recorded in the living ExecPlan. The current
-macOS development host does not provide tmux, zsh, a running Docker daemon, or a
-fresh Kali VM, so the following interactive checks remain explicitly unverified
+macOS development host does not provide tmux, a running Docker daemon, or a fresh
+Kali VM, so the following interactive checks remain explicitly unverified
 until run in the project's VirtualBox Kali VM.
 
 ## Fresh Kali / VirtualBox procedure
@@ -13,68 +13,51 @@ until run in the project's VirtualBox Kali VM.
    `grep -c '>>> securityllama managed block >>>' ~/.zshrc ~/.bashrc` reports one
    block per file.
 3. Start a login zsh and `tmux new -s assessment`; run `securityllama doctor`.
-   Type inert text at the prompt, press Alt-O, close the cockpit, and verify the
-   editable text and cursor position are unchanged. Run `bindkey '^[o'` and
-   verify it reports `securityllama-open-cockpit`; run `bindkey '^[q'` and verify
-   zsh's `push-line` remains intact. Reopen the cockpit and verify Alt-O closes
-   it from the idle cockpit prompt. Repeat with Esc then O, Ctrl-G, `/q`,
-   `/quit`, and Ctrl-D on an empty prompt.
-   Submit a model request and verify the cockpit prompt returns immediately.
-   Leave the cockpit open once and verify its prompt animates with elapsed time,
-   remains editable, and renders the completed answer without `/last`.
-   Submit two questions quickly. Verify the second reports `queued`, results
-   appear in submission order as separate cards containing the matching question
-   and request ID, and proposals remain associated with the correct card.
-   Ask `explain the basics of web app fuzzing with burpsuite community` in ask
-   mode. Verify `/context` reports terminal auto-omission, the answer discusses
-   concepts and Community Edition limitations, and no shell command, action-risk
-   metadata, or duplicate proposal panel is displayed.
-   Close the popup, continue using the originating shell, wait for generation,
-   and reopen the cockpit. Verify the unseen answer appears, `/jobs` reports it
-   completed, `/last` redisplays it, and no command was typed or executed.
-4. Print synthetic scan-like output containing ANSI color and a fake bearer
-   token. Press Prefix then A and verify the cockpit reports redaction and omits
-   both the token and terminal controls. Run `/context` and verify the capture,
-   memory, redaction, truncation, and estimated-token fields are visible.
-5. Request a proposal and run `/copy`. Run `tmux show-buffer`; verify the command
-   is present and the originating pane did not change or execute it.
-6. Run `/insert`, return to the originating pane, and press Alt-I at an empty
-   prompt. Verify the exact proposal appears but does not run. Clear it with
-   Ctrl-C. Verify a second Alt-I reports that no proposal is staged. Stage
-   another proposal, wait beyond the configured TTL, and verify it cannot be
-   inserted.
+   Verify it reports both shell integration and the tmux chat binding. Press
+   Prefix then A and confirm tmux creates a normal window named
+   `securityllama`, not a popup. Press Prefix then A from the chat and confirm it
+   returns to the previous window without terminating the chat process. Run
+   `/q`, reopen with Prefix then A, and confirm a new chat window starts.
+4. Submit a model request and verify the chat prompt returns immediately and
+   animates with elapsed time. Return to the shell with Prefix then A, wait, and
+   reopen the same chat. Verify the answer appears automatically and `/jobs` and
+   `/last` report it. Submit two questions quickly and verify queued results
+   appear in order with matching request IDs. Ask `explain the basics of web app
+   fuzzing with burpsuite community` and verify terminal auto-omission and no
+   command proposal.
+5. Print synthetic scan-like output containing ANSI color and a fake bearer
+   token in the originating pane. Open chat with Prefix then A, ask for analysis,
+   and verify terminal controls and the token are absent. Run `/context` and
+   verify capture, memory, redaction, truncation, and token-estimate fields.
+6. Request an eligible proposal and run `/copy`. Verify `tmux show-buffer`
+   contains the exact single-line proposal and no pane changed or executed it.
+   Return with Prefix then A, paste with Prefix then ], inspect the editable
+   prompt, and discard it with Ctrl-C without pressing Enter.
 7. At a zsh prompt type, without executing,
    `curl -kI https://10.10.10.25/`. Press Alt-A, review, request a lower-impact
-   variant, choose insertion, and verify the prompt changes but no request occurs
-   until Enter. Discard with Ctrl-C.
-8. Repeat step 7 in Bash.
-9. Create an authorized scope containing `10.10.10.0/24`. Verify a proposal for
+   variant, choose insertion, and verify the prompt changes but does not run.
+   Discard with Ctrl-C. Repeat in Bash.
+8. Create an authorized scope containing `10.10.10.0/24`. Verify a proposal for
    `10.10.10.25` is in-scope, `192.0.2.10` is blocked, and substitution is
    unknown with typed confirmation.
-10. In the cockpit, add a note and bookmark, name the session, and export a
-    report. Verify the report is mode `0600`, contains the redacted interaction
-    meaning and dispositions, and does not contain the synthetic raw capture.
-11. Create a synthetic text file containing ANSI controls and a fake token. Use
-    `/attach PATH`, close and reopen the cockpit, and verify `/attachments` still
-    lists it. Ask a question and confirm controls and the token are absent from
-    the model context. Verify `/context` shows attachment counts and bounds.
-    Detach it and confirm it is absent. Reattach it, run `/new`, and confirm the
-    new session has no attachments. Also verify symlinks and NUL-containing
-    binary files are rejected.
-12. Enable reduced motion and monochrome output, reinstall shell integration,
-    and confirm the selected settings and custom bindings work. On an upgrade
-    from the former default, confirm `config.toml.securityllama-backup-*` exists
-    and `ask_hotkey` changed from `alt-q` to `alt-o`.
-13. Temporarily make the installed cockpit command fail, invoke Prefix then A,
-    and verify the popup remains visible with the error. Restore the command,
-    reinstall shell integration, reload `~/.tmux.conf`, and verify the cockpit
-    opens from both the repository and an unrelated working directory. Open a
-    second tmux window in that unrelated directory, remove `~/.local/bin` from
-    that shell's `PATH`, and verify Alt-A, Alt-O, and Prefix then A still work.
-    Stage an inert proposal with `/insert`, return to the second window, and
-    verify Alt-I places it only in that window's editable prompt without
-    executing it.
-14. Run uninstall without purge. Verify managed blocks and installed package are
+9. In chat, add a note and bookmark, name the session, and export a report.
+   Verify mode `0600`, redacted interaction meaning and dispositions, and no raw
+   synthetic capture.
+10. Attach a synthetic text file containing ANSI controls and a fake token.
+    Close and reopen chat and verify `/attachments` still lists it. Confirm
+    controls and the token are absent from model context, then detach it. Reattach,
+    run `/new`, and verify the new session has no attachments. Verify symlinks,
+    NUL-containing binaries, oversized files, and unreadable files are rejected.
+11. Enable reduced motion and monochrome output, customize `shell_hotkey` and
+    `tmux_binding`, reinstall, and confirm both bindings work. Confirm legacy
+    popup and Alt-I/Alt-O settings are accepted but install no corresponding
+    shell bindings.
+12. Open a second tmux window in an unrelated directory and remove
+    `~/.local/bin` from that shell's `PATH`. Verify Alt-A and Prefix then A still
+    work. Prefix then A must focus the existing chat instead of creating another
+    one. Ask a question and verify context comes from the second originating
+    pane. Confirm no tmux command or source file contains `send-keys`.
+13. Run uninstall without purge. Verify managed blocks and installed package are
     gone while configuration and `sessions.db` remain.
 
 Record the Kali version, VirtualBox version, tmux/zsh/Bash versions, exact

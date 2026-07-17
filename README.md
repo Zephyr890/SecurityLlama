@@ -56,19 +56,29 @@ a restrictive scope template.
 
 ## Use
 
-At a zsh or Bash prompt, Alt-A reviews the exact editable command buffer. A
-validated proposal can be assigned to the prompt after confirmation; the
-operator must still press Enter. Prefix then A or Alt-O opens the persistent,
-multi-turn tmux cockpit for the originating pane. The cockpit keeps assistant
-conversation separate from assessment commands and shell history.
+Prefix then A creates or focuses a persistent tmux window named
+`securityllama`. Press the same binding from the chat window to return to the
+previous tmux window. This is an ordinary terminal REPL rather than a popup, so
+conversation input does not share zsh ZLE, Bash Readline, Meta-key handling, or
+the assessment shell's editable buffer. The binding records the invoking pane
+and working directory every time; the next request captures that pane even when
+the chat was originally opened from another tmux window or directory.
 
-The cockpit shows an animated request indicator in its prompt, background request
-status, model/profile/session status, validated responses, and an estimated
-context-window budget. Use `/context` to
-inspect included sources and `/include terminal|memory|scope on|off` to control
-the next request. Token counts are estimates because exact tokenization is
-model-specific. Captured text remains bounded, sanitized, redacted, and omitted
-from persistent audit storage.
+Run `securityllama chat` directly inside tmux when a shortcut is not desired.
+The legacy `securityllama cockpit --pane ID` command remains an alias for upgrade
+compatibility, but installed integration no longer opens a cockpit popup.
+
+At a zsh or Bash prompt, Alt-A remains an optional one-shot review of the exact
+editable command buffer. A validated replacement can be assigned to that buffer
+only after confirmation; the operator must still press Enter. No other Alt-key
+bindings are installed by default.
+
+The chat shows an animated request indicator, background request status,
+model/profile/session status, validated responses, and an estimated context
+budget. Use `/context` to inspect included sources and
+`/include terminal|memory|scope on|off` to control the next request. Token counts
+are estimates because exact tokenization is model-specific. Captured text
+remains bounded, sanitized, redacted, and omitted from persistent audit storage.
 
 Attach text evidence to the current logical session with `/attach PATH`:
 
@@ -79,7 +89,7 @@ Attach text evidence to the current logical session with `/attach PATH`:
 /detach all
 ```
 
-Attachments remain active when the cockpit is closed and reopened. They stop
+Attachments remain active when the chat window is closed and reopened. They stop
 contributing to context when explicitly detached or when `/new`, `session new`,
 or `session clear` starts a new logical session. SecurityLlama stores only
 private runtime references—not file contents—and re-reads each file for every
@@ -89,14 +99,13 @@ are rejected. Terminal controls and likely secrets are removed before attached
 text is sent to Ollama. All terminal and attachment text shares the configured
 context bounds, so `/context` reports when combined input was truncated.
 
-When a proposal passes local policy, `/insert` stages it for the originating
-pane in a private, expiring runtime file. Return to an empty shell prompt and
-press Alt-I to place that exact single-line proposal in the editable buffer.
-SecurityLlama does not type into the pane or send Enter. `/copy` uses the tmux
-paste buffer instead. Staged proposals expire after five minutes by default and
-are consumed at most once.
+When a proposal passes local policy, `/copy` sends its validated single-line
+text to the tmux paste buffer through stdin. Use Prefix then A to return to the
+shell and tmux's normal Prefix then ] binding to paste it into the editable
+prompt. SecurityLlama never types into a pane or sends Enter; the operator still
+reviews the exact text and explicitly executes or discards it.
 
-Useful cockpit commands include:
+Useful chat commands include:
 
 ```text
 /help                       keyboard and command reference
@@ -110,48 +119,37 @@ Useful cockpit commands include:
 /proposals  /next  /prev
 /alternative Prefer a passive validation
 /diff CURRENT_COMMAND
-/insert  /copy  /reject
+/copy  /reject
 /note TEXT  /bookmark TEXT
 /name ENGAGEMENT_NAME
 /report /path/to/redacted-report.md
 /new  /clear  /quit  /q
 ```
 
-Reduced motion, monochrome output, completion bell, popup size, proposal lifetime,
-and all three shell shortcuts are configurable under `[ui]`. Rerun
-`securityllama install-shell` after changing bindings. On upgrade, that command
-migrates the former shipped `ask_hotkey = "alt-q"` value to Alt-O and backs up
-the configuration before editing it.
+Reduced motion, monochrome output, completion bell, the Alt-A review key, and
+the tmux chat binding are configurable under `[ui]`. Legacy `popup_*`,
+`insert_hotkey`, `ask_hotkey`, and `proposal_ttl_seconds` settings are accepted
+so existing files still load, but they are ignored. Rerun
+`securityllama install-shell` after changing bindings.
 
-Installed shell integration resolves Alt-A, Alt-I, and Alt-O through the
-absolute SecurityLlama executable recorded at installation time, falling back
-to the current `PATH` only if that launcher is no longer available. The tmux
-binding records the same absolute launcher. As a result, the shortcuts work in
-new terminal/tmux windows and unrelated working directories even when
-`~/.local/bin` is absent from `PATH` or `PATH` contains a relative virtualenv
-entry. Failed cockpit commands remain visible in the popup instead of
-disappearing immediately. Alt-O explicitly
-restores the current zsh/Bash editable buffer when the cockpit closes without
-overriding zsh's Alt-Q `push-line` shortcut. If an older shell still reports a
-SecurityLlama binding for `"^[q"`, reload it with `exec "$SHELL" -l`;
-`bindkey '^[o'` should report `securityllama-open-cockpit`. After an upgrade,
-rerun `securityllama install-shell`, start a new login shell, and reload an
-existing tmux server with `tmux source-file ~/.tmux.conf`.
+Installed integration records the absolute SecurityLlama launcher for both
+Alt-A and Prefix then A, so they work from unrelated directories even when
+`~/.local/bin` is absent from `PATH`. After an upgrade, rerun
+`securityllama install-shell`, start a new login shell, and reload an existing
+tmux server with `tmux source-file ~/.tmux.conf`. `securityllama doctor` checks
+the shell and tmux managed blocks separately.
 
-At an idle cockpit prompt, Alt-O toggles the cockpit closed; terminals that do
-not map Option to Meta can use Esc then O, Ctrl-G, `/quit`, `/q`, or Ctrl-D on an
-empty prompt. Submitting a question captures and redacts its bounded context,
-starts a detached request, and immediately returns to the cockpit prompt. Close
-the popup and continue testing; the request continues without access to the
-shell. Reopening the same logical session displays unseen completed answers and
-restores policy-checked proposals. `/last` refreshes the newest request and
-`/jobs` lists up to 20 recent requests. Starting `/new` moves to a new logical
-session, so earlier results remain associated with the old session.
+Submitting a question captures and redacts bounded context from the most recent
+originating pane, starts a detached request, and immediately returns to the chat
+prompt. Prefix then A returns to the shell without stopping the request. `/last`
+refreshes the newest request and `/jobs` lists up to 20 recent requests.
+Starting `/new` moves to a new logical session, so earlier results remain
+associated with the old session.
 
-If the cockpit stays open, its prompt animates with the active request count and
-elapsed time. Completed answers render automatically above the editable prompt;
-the operator can keep typing while generation runs. Reduced-motion mode uses a
-static working indicator instead of animated frames.
+The chat prompt animates with the active request count and elapsed time.
+Completed answers render automatically above the editable prompt; the operator
+can keep typing while generation runs. Reduced-motion mode uses a static working
+indicator instead of animated frames.
 
 Questions submitted to one logical session are processed in submission order.
 Additional questions show as `queued` while the current request runs, preventing
@@ -164,15 +162,15 @@ proposal retains that request identity and its originating pane.
 Clearly conceptual questions—such as “explain the basics of web app fuzzing”—
 automatically omit unrelated terminal capture so small local models are not
 distracted by shell metadata. `/context` reports this as `Terminal auto-omitted`.
-Conceptual turns cannot publish or stage a command: even if the model returns
+Conceptual turns cannot publish a command: even if the model returns
 one, SecurityLlama removes it and its action metadata locally. Actionable
 requests made through review/suggest mode or explicit command language retain
-normal proposal behavior. The cockpit renders an eligible proposal exactly once.
+normal proposal behavior. The chat renders an eligible proposal exactly once.
 
 Raw terminal and attachment context crosses to the detached worker through an
 anonymous pipe and is not written to background job state. Private `0600`
 runtime state contains the submitted question, status, sanitized validated
-answer, and inert proposal metadata so the cockpit can recover after closing.
+answer, and inert proposal metadata so the chat can recover after closing.
 Completed answers still follow normal audit retention when auditing is enabled.
 
 Non-interactive modes also accept bounded context on stdin:

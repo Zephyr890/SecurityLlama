@@ -104,7 +104,7 @@ class PolicyAssessment(BoundaryModel):
 
 
 class BackgroundJob(BoundaryModel):
-    """Private runtime status for one detached cockpit request."""
+    """Private runtime status for one detached chat request."""
 
     schema_version: Literal["1"] = "1"
     job_id: str = Field(pattern=r"^[0-9a-f]{32}$")

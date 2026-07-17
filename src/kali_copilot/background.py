@@ -1,4 +1,4 @@
-"""Detached cockpit requests with private, session-scoped runtime results."""
+"""Detached chat requests with private, session-scoped runtime results."""
 
 from __future__ import annotations
 

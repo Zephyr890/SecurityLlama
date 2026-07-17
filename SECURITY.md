@@ -4,7 +4,9 @@
 command, submit a privilege prompt, or claim that advisory scope parsing makes
 a command authorized or safe. Command insertion means assigning a validated,
 single-line string to the shell's editable buffer; execution remains an explicit
-operator action.
+operator action. In the persistent chat, SecurityLlama copies an eligible
+single-line proposal to tmux's paste buffer; the operator explicitly invokes
+tmux paste and then decides whether to press Enter.
 
 ## Invariants
 
@@ -15,7 +17,7 @@ operator action.
   are rejected for insertion.
 - Context is bounded and likely secrets are redacted before model submission.
 - Raw terminal context is not persisted by default.
-- Detached cockpit workers receive bounded, sanitized context through an
+- Detached chat workers receive bounded, sanitized context through an
   anonymous pipe. Private runtime job state contains the explicit question,
   status, and sanitized validated response, but never captured terminal or
   attached-file input. Workers have no shell-input or command-execution path.
@@ -32,12 +34,17 @@ operator action.
   read, terminal-sanitized, secret-redacted, and bounded for each request.
 - Attachments must be regular non-symlink files. A replaced file identity is
   rejected until the operator explicitly detaches and reattaches it.
-- Cross-pane proposals are staged as validated inert JSON in a private runtime
-  directory, are scoped to one logical session and tmux pane, expire, and are
-  consumed at most once.
-- Only the zsh ZLE or Bash Readline widget may assign a staged proposal to an
-  editable command buffer. The cockpit never types into a pane or synthesizes
-  Enter.
+- The chat-window manager accepts only validated tmux pane/window/session IDs,
+  an existing working directory, and the installed SecurityLlama launcher. It
+  constructs no command from terminal capture or model output and never uses
+  `send-keys`.
+- Eligible chat proposals reach tmux only as stdin data to `load-buffer`.
+  SecurityLlama never calls `paste-buffer`, types into a pane, or synthesizes
+  Enter. The ordinary tmux paste binding and shell execution remain separate
+  operator actions.
+- The optional Alt-A zsh ZLE or Bash Readline widget may assign a confirmed
+  one-shot review result to its own editable command buffer. It never executes
+  that buffer.
 - The default Ollama endpoint is loopback; public endpoints require an explicit
   override and warning.
 - The program runs as the invoking user and never handles sudo credentials.
@@ -46,7 +53,7 @@ Scope parsing in version 1 is deliberately conservative and advisory. Shell
 substitutions, proxies, scripts, interpreters, aliases, and runtime behavior can
 make static classification incomplete.
 
-The cockpit context meter is an estimate, not an exact tokenizer result or a
+The chat context meter is an estimate, not an exact tokenizer result or a
 security boundary. Context-source toggles affect model disclosure but never
 disable response validation, terminal-control stripping, secret redaction, or
 local proposal policy. Operator notes are persistent by explicit action and

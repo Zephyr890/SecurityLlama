@@ -1,4 +1,4 @@
-"""Persistent multi-turn operator cockpit for tmux."""
+"""Persistent multi-turn terminal chat for tmux."""
 
 from __future__ import annotations
 
@@ -16,7 +16,6 @@ from types import TracebackType
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.application import run_in_terminal
-from prompt_toolkit.key_binding import KeyBindings, KeyPressEvent
 from rich.console import Console
 from rich.panel import Panel
 from rich.status import Status
@@ -51,7 +50,6 @@ from kali_copilot.prompting import (
     enforce_request_contract_for,
     terminal_context_relevant,
 )
-from kali_copilot.proposal import stage_proposal
 from kali_copilot.reporting import markdown_report
 from kali_copilot.sanitize import (
     redact_secrets,
@@ -61,10 +59,10 @@ from kali_copilot.sanitize import (
 )
 from kali_copilot.scope import active_scope
 from kali_copilot.session import clear_session, current_session
-from kali_copilot.tmux import copy_to_buffer, validate_pane_id
+from kali_copilot.tmux import copy_to_buffer, current_chat_origin_pane, validate_pane_id
 from kali_copilot.ui import render_response
 
-HELP = """Cockpit commands
+HELP = """Chat commands
   /help                         show this help
   /mode ask|explain|review|suggest
   /context                      inspect the next model request
@@ -77,7 +75,6 @@ HELP = """Cockpit commands
   /profile NAME                 select a configured model profile
   /proposals, /next, /prev      inspect and select proposals
   /diff TEXT                    compare selected proposal with TEXT
-  /insert                       stage selected proposal for Alt-I in its shell
   /copy                         copy selected proposal to the tmux paste buffer
   /reject                       mark selected proposal rejected
   /alternative [instruction]    request another proposal
@@ -86,32 +83,14 @@ HELP = """Cockpit commands
   /report PATH                  export a redacted Markdown report
   /new                          begin a new logical session
   /clear                        clear the screen (does not erase audits)
-  /quit, /q                     close the cockpit
+  /quit, /q                     close the chat window
 
-Alt-O (or Esc then O), Ctrl-G, and Ctrl-D at an empty prompt also close the
-cockpit. Submitted requests continue in a detached process and appear when the
-cockpit is reopened, or render automatically if it remains open. The live
-prompt animates while requests are running. No command is executed by the
-cockpit. Alt-I in the originating shell retrieves staged text.
+Prefix then A toggles between this persistent chat window and the originating
+shell. Submitted requests continue in a detached process and render here when
+complete. After /copy, return to the shell and use tmux's normal Prefix then ]
+paste binding. Pasted text remains editable; SecurityLlama never sends Enter or
+executes a proposed command.
 """
-
-
-def cockpit_key_bindings() -> KeyBindings:
-    """Return close bindings that do not submit or execute shell text."""
-    bindings = KeyBindings()
-
-    @bindings.add("escape", "o")
-    def close_with_meta_o(event: KeyPressEvent) -> None:
-        event.app.exit(result="/quit")
-
-    @bindings.add("c-g")
-    def close_with_control_g(event: KeyPressEvent) -> None:
-        event.app.exit(result="/quit")
-
-    return bindings
-
-
-COCKPIT_KEY_BINDINGS = cockpit_key_bindings()
 
 
 @dataclass
@@ -238,7 +217,11 @@ class Cockpit:
         profile = self.base_config.profiles.get(self.state.profile_name)
         return _profiled_config(self.base_config, profile) if profile else self.base_config
 
+    def _refresh_origin_pane(self) -> None:
+        self.state.pane_id = current_chat_origin_pane(self.state.pane_id)
+
     def _packet(self, question: str) -> ContextPacket:
+        self._refresh_origin_pane()
         safe_question = redact_secrets(strip_terminal_sequences(question))
         use_terminal = self.state.include_terminal and terminal_context_relevant(
             self.state.mode, safe_question.text
@@ -290,10 +273,11 @@ class Cockpit:
         return packet.model_copy(update=updates)
 
     def _header(self) -> None:
+        self._refresh_origin_pane()
         session = current_session(self.paths).session_id
         with AuditStore(self.paths.database_file) as store:
             name = store.session_name(session)
-        title = f"SecurityLlama cockpit — {name or session[:10]}"
+        title = f"SecurityLlama chat — {name or session[:10]}"
         subtitle = (
             f"pane {self.state.pane_id} · mode {self.state.mode} · "
             f"profile {self.state.profile_name} · model {self.config.ollama.model}"
@@ -378,8 +362,8 @@ class Cockpit:
                 )
             self.console.print(
                 f"Request {job.job_id[:8]} was queued in the background. "
-                "Its answer will appear here automatically; close with Alt-O and reopen later "
-                "if you prefer to continue testing."
+                "Its answer will appear here automatically. Use Prefix then A to return "
+                "to the originating shell while it runs."
             )
             self._running_jobs[job.job_id] = job.created_at
         except KeyboardInterrupt:
@@ -555,27 +539,8 @@ class Cockpit:
             with AuditStore(self.paths.database_file) as store:
                 store.update_disposition(item.interaction_id, value)
 
-    def _stage(self) -> None:
-        item = self._selected()
-        if item is None:
-            self.console.print("No proposal selected.")
-            return
-        pending = stage_proposal(
-            item.response,
-            item.assessment,
-            session_id=current_session(self.paths).session_id,
-            pane_id=item.pane_id,
-            ttl_seconds=self.config.ui.proposal_ttl_seconds,
-            interaction_id=item.interaction_id,
-            paths=self.paths,
-        )
-        self._set_disposition(item, "staged")
-        self.console.print(
-            f"Proposal staged until {pending.expires_at.isoformat()}. Focus pane "
-            f"{item.pane_id} and press Alt-I; it will not execute."
-        )
-
     def _handle(self, line: str) -> bool:
+        self._refresh_origin_pane()
         try:
             parts = shlex.split(line)
         except ValueError as exc:
@@ -688,13 +653,19 @@ class Cockpit:
             else:
                 self.console.print("No proposal selected.")
         elif command == "/insert":
-            self._stage()
+            self.console.print(
+                "/insert was retired with the popup cockpit. Use /copy, return with "
+                "Prefix then A, and paste with tmux Prefix then ]."
+            )
         elif command == "/copy":
             item = self._selected()
             if item and item.assessment.insertion_allowed and item.response.proposed_command:
                 copy_to_buffer(item.response.proposed_command)
                 self._set_disposition(item, "copied")
-                self.console.print("Copied to tmux buffer; not typed or executed.")
+                self.console.print(
+                    "Copied to the tmux buffer. Return with Prefix then A and paste with "
+                    "Prefix then ]; the text remains editable and is not executed."
+                )
             else:
                 self.console.print("No eligible proposal selected.")
         elif command == "/reject":
@@ -733,7 +704,7 @@ class Cockpit:
             self.state.selected = -1
             self.console.print(f"New session: {session_state.session_id}")
         else:
-            self.console.print("Unknown cockpit command. Use /help.")
+            self.console.print("Unknown chat command. Use /help.")
         return True
 
     async def _run_async(self) -> int:
@@ -747,12 +718,11 @@ class Cockpit:
                     line = (
                         await session.prompt_async(
                             self._prompt_message,
-                            key_bindings=COCKPIT_KEY_BINDINGS,
                             refresh_interval=0.1,
                         )
                     ).strip()
                 except (EOFError, KeyboardInterrupt):
-                    self.console.print("Closing cockpit.")
+                    self.console.print("Closing chat.")
                     return 0
                 if not line:
                     continue
@@ -772,5 +742,5 @@ class Cockpit:
                 await monitor
 
     def run(self) -> int:
-        """Run the interactive cockpit and its live background-result monitor."""
+        """Run the terminal chat and its live background-result monitor."""
         return asyncio.run(self._run_async())

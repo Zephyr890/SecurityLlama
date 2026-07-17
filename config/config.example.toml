@@ -42,20 +42,16 @@ require_scope_for_network_insert = true
 allow_out_of_scope_insert = false
 require_second_confirmation_for_high_risk = true
 
-# Popup size is a percentage of the current tmux client dimensions.
+# Alt-A reviews the exact editable buffer. Prefix then tmux_binding toggles the
+# dedicated SecurityLlama chat window.
 [ui]
-popup_width_percent = 92
-popup_height_percent = 85
 shell_hotkey = "alt-a"
 tmux_binding = "A"
-insert_hotkey = "alt-i"
-ask_hotkey = "alt-o"
-proposal_ttl_seconds = 300
 reduced_motion = false
 monochrome = false
 completion_bell = false
 
-# Cockpit profiles adjust model effort without changing the endpoint or model name.
+# Chat profiles adjust model effort without changing the endpoint or model name.
 [profiles.fast]
 think = false
 num_ctx = 4096

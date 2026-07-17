@@ -25,7 +25,7 @@ def test_install_is_idempotent_and_uninstall_preserves_other_content(tmp_path: P
     assert "# user setting" in (home / ".zshrc").read_text()
 
 
-def test_install_renders_validated_custom_bindings_and_popup_size(tmp_path: Path) -> None:
+def test_install_renders_widget_and_persistent_chat_binding(tmp_path: Path) -> None:
     home = tmp_path / "home"
     home.mkdir()
     paths = AppPaths(tmp_path / "config", tmp_path / "data", tmp_path / "cache", tmp_path / "run")
@@ -46,18 +46,18 @@ tmux_binding = "L"
     bash = (paths.config_dir / "shell" / "securityllama.bash").read_text()
     tmux = (paths.config_dir / "shell" / "securityllama.tmux.conf").read_text()
     assert "bindkey '^[r' securityllama-widget" in zsh
-    assert "bindkey '^[p' securityllama-insert-proposal" in zsh
-    assert "bindkey '^[v' securityllama-open-cockpit" in zsh
     assert "bind -x '\"\\er\":_securityllama_widget'" in bash
+    assert "securityllama-insert-proposal" not in zsh + bash
+    assert "securityllama-open-cockpit" not in zsh + bash
     assert "bind-key L" in tmux
-    assert "display-popup -EE" in tmux
-    assert '"securityllama" cockpit' not in tmux
-    assert "-w 80% -h 70%" in tmux
-    assert 'local saved_buffer="$BUFFER" saved_cursor="$CURSOR"' in zsh
-    assert 'BUFFER="$saved_buffer"' in zsh
+    assert "run-shell" in tmux
+    assert "_open-chat" in tmux
+    assert "#{q:pane_id}" in tmux
+    assert "#{q:pane_current_path}" in tmux
+    assert "display-popup" not in tmux
 
 
-def test_install_normalizes_relative_executable_for_every_shell_shortcut(
+def test_install_normalizes_relative_executable_for_widget_and_tmux_chat(
     tmp_path: Path, monkeypatch
 ) -> None:
     home = tmp_path / "home"
@@ -80,19 +80,46 @@ def test_install_normalizes_relative_executable_for_every_shell_shortcut(
     quoted_launcher = shlex.quote(str(launcher))
     assert f"local securityllama_fallback={quoted_launcher}" in zsh
     assert f"local securityllama_fallback={quoted_launcher}" in bash
-    assert zsh.count("securityllama_bin=$(_securityllama_executable)") == 3
-    assert bash.count("securityllama_bin=$(_securityllama_executable)") == 3
-    assert f'-- "{launcher}" cockpit' in tmux
-    assert "@SECURITYLLAMA_EXECUTABLE@" not in zsh + bash + tmux
-    assert "bindkey '^[o' securityllama-open-cockpit" in zsh
-    assert "bind -x '\"\\eo\":_securityllama_open_cockpit'" in bash
+    assert zsh.count("securityllama_bin=$(_securityllama_executable)") == 1
+    assert bash.count("securityllama_bin=$(_securityllama_executable)") == 1
+    assert tmux.count(str(launcher)) == 2
+    assert "@SECURITYLLAMA_EXECUTABLE@" not in zsh + bash
+    assert "@SECURITYLLAMA_CHAT_COMMAND@" not in tmux
+    assert "_open-chat" in tmux
+    assert "^[i" not in zsh and "\\ei" not in bash
+    assert "^[o" not in zsh and "\\eo" not in bash
+
+
+def test_install_records_stable_launcher_symlink_instead_of_venv_target(
+    tmp_path: Path, monkeypatch
+) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    target = tmp_path / "venv" / "bin" / "securityllama"
+    target.parent.mkdir(parents=True)
+    target.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    target.chmod(0o700)
+    shim = tmp_path / "local" / "bin" / "securityllama"
+    shim.parent.mkdir(parents=True)
+    shim.symlink_to(target)
+    paths = AppPaths(tmp_path / "config", tmp_path / "data", tmp_path / "cache", tmp_path / "run")
+    monkeypatch.setattr("kali_copilot.install.shutil.which", lambda command: str(shim))
+
+    install_shell(paths, home)
+
+    installed = "\n".join(
+        (paths.config_dir / "shell" / name).read_text()
+        for name in ("securityllama.zsh", "securityllama.bash", "securityllama.tmux.conf")
+    )
+    assert str(shim) in installed
+    assert str(target) not in installed
 
 
 @pytest.mark.parametrize(
     ("shell_name", "shell_args"),
     (("bash", ("--noprofile", "--norc")), ("zsh", ("-f",))),
 )
-def test_installed_shell_opens_cockpit_from_unrelated_directory_without_path(
+def test_installed_shell_resolves_widget_from_unrelated_directory_without_path(
     tmp_path: Path, monkeypatch, shell_name: str, shell_args: tuple[str, ...]
 ) -> None:
     shell = shutil.which(shell_name)
@@ -117,22 +144,7 @@ def test_installed_shell_opens_cockpit_from_unrelated_directory_without_path(
     asset = paths.config_dir / "shell" / f"securityllama.{shell_name}"
     environment = os.environ.copy()
     environment["PATH"] = "/usr/bin:/bin"
-    command = """
-source "$1" >/dev/null 2>&1 || true
-cd "$2" || exit 1
-tmux() { printf 'tmux-arg=%s\n' "$@"; }
-zle() { return 0; }
-TMUX=fixture
-TMUX_PANE=%9
-BUFFER=preserved
-CURSOR=4
-READLINE_LINE=preserved
-READLINE_POINT=4
-printf 'resolved=%s\n' "$(_securityllama_executable)"
-_securityllama_open_cockpit
-printf 'buffer=%s:%s\n' "$BUFFER" "$CURSOR"
-printf 'readline=%s:%s\n' "$READLINE_LINE" "$READLINE_POINT"
-"""
+    command = 'source "$1" >/dev/null 2>&1 || true; cd "$2" || exit 1; _securityllama_executable'
 
     completed = subprocess.run(  # noqa: S603 - fixed shell with inert test script
         [shell, *shell_args, "-c", command, "securityllama-test", str(asset), str(unrelated)],
@@ -143,16 +155,10 @@ printf 'readline=%s:%s\n' "$READLINE_LINE" "$READLINE_POINT"
     )
 
     assert completed.returncode == 0, completed.stderr
-    output = completed.stdout.splitlines()
-    assert f"resolved={launcher}" in output
-    assert f"tmux-arg={unrelated}" in output
-    assert f"tmux-arg={launcher}" in output
-    assert "tmux-arg=%9" in output
-    assert "buffer=preserved:4" in output
-    assert "readline=preserved:4" in output
+    assert completed.stdout.strip() == str(launcher)
 
 
-def test_install_migrates_shipped_alt_q_default_with_backup(tmp_path: Path) -> None:
+def test_install_preserves_legacy_hotkey_fields_without_binding_them(tmp_path: Path) -> None:
     home = tmp_path / "home"
     home.mkdir()
     paths = AppPaths(tmp_path / "config", tmp_path / "data", tmp_path / "cache", tmp_path / "run")
@@ -161,9 +167,7 @@ def test_install_migrates_shipped_alt_q_default_with_backup(tmp_path: Path) -> N
 
     install_shell(paths, home)
 
-    assert 'ask_hotkey = "alt-o"' in paths.config_file.read_text()
-    backups = list(paths.config_dir.glob("config.toml.securityllama-backup-*"))
-    assert len(backups) == 1
-    assert 'ask_hotkey = "alt-q"' in backups[0].read_text()
+    assert 'ask_hotkey = "alt-q"' in paths.config_file.read_text()
+    assert not list(paths.config_dir.glob("config.toml.securityllama-backup-*"))
     zsh = (paths.config_dir / "shell" / "securityllama.zsh").read_text()
-    assert "bindkey '^[o' securityllama-open-cockpit" in zsh
+    assert "securityllama-open-cockpit" not in zsh

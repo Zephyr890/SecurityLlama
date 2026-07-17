@@ -11,10 +11,66 @@ from kali_copilot.ollama import ChatResult, InvalidModelResponseError
 from kali_copilot.paths import AppPaths
 from kali_copilot.proposal import stage_proposal
 from kali_copilot.session import SessionState
+from kali_copilot.tmux import TmuxError
 
 
 def test_empty_cli_is_safe() -> None:
     assert cli.main([]) == 0
+
+
+def test_open_chat_cli_forwards_validated_tmux_metadata(monkeypatch) -> None:
+    seen: dict[str, str] = {}
+
+    def open_chat_window(*, pane_id: str, cwd: str, executable: str) -> None:
+        seen.update(pane_id=pane_id, cwd=cwd, executable=executable)
+
+    monkeypatch.setattr(cli, "open_chat_window", open_chat_window)
+
+    assert (
+        cli.main(
+            [
+                "_open-chat",
+                "--pane",
+                "%7",
+                "--cwd",
+                "/assessment",
+                "--executable",
+                "/opt/securityllama/bin/securityllama",
+            ]
+        )
+        == 0
+    )
+    assert seen == {
+        "pane_id": "%7",
+        "cwd": "/assessment",
+        "executable": "/opt/securityllama/bin/securityllama",
+    }
+
+
+def test_open_chat_failure_is_visible_in_tmux_status(monkeypatch, capsys) -> None:
+    messages: list[str] = []
+
+    def fail(**kwargs: str) -> None:
+        raise TmuxError("fixture launch failure")
+
+    monkeypatch.setattr(cli, "open_chat_window", fail)
+    monkeypatch.setattr(cli, "display_message", messages.append)
+
+    result = cli.main(
+        [
+            "_open-chat",
+            "--pane",
+            "%7",
+            "--cwd",
+            "/assessment",
+            "--executable",
+            "/opt/securityllama/bin/securityllama",
+        ]
+    )
+
+    assert result == 6
+    assert messages == ["SecurityLlama chat failed: fixture launch failure"]
+    assert "fixture launch failure" in capsys.readouterr().err
 
 
 def test_debug_prints_redacted_model_response_diagnostics(monkeypatch, capsys) -> None:

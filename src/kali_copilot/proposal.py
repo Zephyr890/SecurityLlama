@@ -1,4 +1,4 @@
-"""Private, expiring proposal handoff between the cockpit and shell editors."""
+"""Legacy private proposal handoff retained for upgrade compatibility."""
 
 from __future__ import annotations
 

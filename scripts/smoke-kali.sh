@@ -24,6 +24,19 @@ docker run --rm -v "$repo_root:/workspace:ro" kalilinux/kali-rolling bash -lc '
   ./scripts/bootstrap-kali.sh --no-apt --non-interactive --ollama-url http://127.0.0.1:11435 --model fixture-model
   ./scripts/bootstrap-kali.sh --no-apt --non-interactive --ollama-url http://127.0.0.1:11435 --model fixture-model
   test "$(grep -c ">>> securityllama managed block >>>" "$HOME/.zshrc")" -eq 1
+  tmux -L securityllama-smoke -f "$HOME/.tmux.conf" new-session -d -s assessment -c /tmp
+  tmux -L securityllama-smoke list-keys -T prefix | grep "_open-chat"
+  launcher=$(command -v securityllama)
+  origin_pane=$(tmux -L securityllama-smoke display-message -p -t assessment:0.0 "#{pane_id}")
+  tmux -L securityllama-smoke run-shell -t assessment:0.0 \
+    "$launcher _open-chat --executable $launcher --pane #{q:pane_id} --cwd #{q:pane_current_path}"
+  test "$(tmux -L securityllama-smoke show-options -w -v -t assessment:securityllama @securityllama_chat)" = 1
+  test "$(tmux -L securityllama-smoke show-options -w -v -t assessment:securityllama @securityllama_origin_pane)" = "$origin_pane"
+  test "$(tmux -L securityllama-smoke list-windows -t assessment -F "#{@securityllama_chat}" | grep -c "^1$")" -eq 1
+  tmux -L securityllama-smoke run-shell -t assessment:securityllama \
+    "$launcher _open-chat --executable $launcher --pane #{q:pane_id} --cwd #{q:pane_current_path}"
+  test "$(tmux -L securityllama-smoke display-message -p -t assessment "#{window_name}")" != securityllama
+  tmux -L securityllama-smoke kill-server
   securityllama --version
   securityllama doctor
   securityllama ask "smoke test"

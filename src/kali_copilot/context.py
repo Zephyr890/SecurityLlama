@@ -36,6 +36,7 @@ class ContextCollector:
         return packet.model_copy(
             update={
                 "pane_id": capture.pane_id,
+                "cwd": capture.cwd,
                 "capture_truncated": bounded.truncated,
                 "redactions": (redacted.records if redacted else []) + safe_question.records,
             }

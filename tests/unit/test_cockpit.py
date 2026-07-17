@@ -9,7 +9,7 @@ from rich.console import Console
 
 import kali_copilot.cockpit as cockpit_module
 from kali_copilot.attachments import attach_file, load_attachment_state
-from kali_copilot.cockpit import COCKPIT_KEY_BINDINGS, Cockpit, context_usage
+from kali_copilot.cockpit import Cockpit, context_usage
 from kali_copilot.config import AppConfig, AuditConfig, ContextConfig, OllamaConfig
 from kali_copilot.models import (
     AssistantResponse,
@@ -48,10 +48,17 @@ def test_context_usage_exposes_budget_sources_without_raw_text() -> None:
     assert usage["truncated"] is True
 
 
-def test_cockpit_has_meta_o_and_control_g_close_bindings() -> None:
-    keys = {tuple(str(key) for key in binding.keys) for binding in COCKPIT_KEY_BINDINGS.bindings}
-    assert ("Keys.Escape", "o") in keys
-    assert ("Keys.ControlG",) in keys
+def test_chat_refreshes_originating_pane_before_capture(monkeypatch) -> None:
+    cockpit = Cockpit(
+        AppConfig(audit=AuditConfig(enabled=False)),
+        "%1",
+        console=Console(file=io.StringIO(), force_terminal=False),
+    )
+    monkeypatch.setattr(cockpit_module, "current_chat_origin_pane", lambda pane: "%9")
+
+    cockpit._refresh_origin_pane()
+
+    assert cockpit.state.pane_id == "%9"
 
 
 def test_cockpit_prompt_animates_while_background_job_runs() -> None:
