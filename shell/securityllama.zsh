@@ -47,3 +47,41 @@ function _securityllama_widget() {
 
 zle -N securityllama-widget _securityllama_widget
 bindkey '^[a' securityllama-widget
+
+function _securityllama_insert_proposal() {
+  local runtime_dir="${XDG_RUNTIME_DIR:-/tmp/securityllama-${UID}}"
+  local work_dir command_file action
+  [[ -n ${TMUX_PANE:-} ]] || { zle -M 'SecurityLlama insertion requires tmux'; return 1; }
+  if [[ -n "$BUFFER" ]]; then
+    zle -M 'Clear the prompt before inserting a staged SecurityLlama proposal'
+    return 1
+  fi
+  mkdir -p -m 700 -- "$runtime_dir" || return 1
+  work_dir=$(mktemp -d "$runtime_dir/insert.XXXXXXXX") || return 1
+  chmod 700 "$work_dir"
+  command_file="$work_dir/command"
+  action=$(securityllama _consume-proposal --pane "$TMUX_PANE" --command-file "$command_file")
+  if [[ "$action" == insert && -f "$command_file" ]]; then
+    BUFFER=$(<"$command_file")
+    CURSOR=${#BUFFER}
+  else
+    zle -M 'No unexpired SecurityLlama proposal is staged for this pane'
+  fi
+  rm -rf -- "$work_dir"
+  zle redisplay
+}
+
+function _securityllama_open_cockpit() {
+  if [[ -n ${TMUX:-} && -n ${TMUX_PANE:-} ]]; then
+    tmux display-popup -E -w 92% -h 85% -T ' SecurityLlama cockpit ' -- \
+      securityllama cockpit --pane "$TMUX_PANE"
+  else
+    zle -M 'SecurityLlama cockpit requires tmux; use Alt-A for command review'
+  fi
+  zle redisplay
+}
+
+zle -N securityllama-insert-proposal _securityllama_insert_proposal
+zle -N securityllama-open-cockpit _securityllama_open_cockpit
+bindkey '^[i' securityllama-insert-proposal
+bindkey '^[q' securityllama-open-cockpit

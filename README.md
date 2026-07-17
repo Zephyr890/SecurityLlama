@@ -58,8 +58,47 @@ a restrictive scope template.
 
 At a zsh or Bash prompt, Alt-A reviews the exact editable command buffer. A
 validated proposal can be assigned to the prompt after confirmation; the
-operator must still press Enter. Prefix then A opens the read-only tmux popup,
-whose proposals can only be copied into a tmux paste buffer.
+operator must still press Enter. Prefix then A or Alt-Q opens the persistent,
+multi-turn tmux cockpit for the originating pane. The cockpit keeps assistant
+conversation separate from assessment commands and shell history.
+
+The cockpit shows an elapsed request animation, model/profile/session status,
+validated responses, and an estimated context-window budget. Use `/context` to
+inspect included sources and `/include terminal|memory|scope on|off` to control
+the next request. Token counts are estimates because exact tokenization is
+model-specific. Captured text remains bounded, sanitized, redacted, and omitted
+from persistent audit storage.
+
+When a proposal passes local policy, `/insert` stages it for the originating
+pane in a private, expiring runtime file. Return to an empty shell prompt and
+press Alt-I to place that exact single-line proposal in the editable buffer.
+SecurityLlama does not type into the pane or send Enter. `/copy` uses the tmux
+paste buffer instead. Staged proposals expire after five minutes by default and
+are consumed at most once.
+
+Useful cockpit commands include:
+
+```text
+/help                       keyboard and command reference
+/status                     endpoint, model, scope, and session status
+/mode ask|explain|review|suggest
+/profile fast|deep
+/context
+/include terminal|memory|scope on|off
+/proposals  /next  /prev
+/alternative Prefer a passive validation
+/diff CURRENT_COMMAND
+/insert  /copy  /reject
+/note TEXT  /bookmark TEXT
+/name ENGAGEMENT_NAME
+/report /path/to/redacted-report.md
+/new  /clear  /quit
+```
+
+Ctrl-C cancels a model wait when supported by the HTTP transport. Reduced
+motion, monochrome output, completion bell, popup size, proposal lifetime, and
+all three shell shortcuts are configurable under `[ui]`. Rerun
+`securityllama install-shell` after changing bindings.
 
 Non-interactive modes also accept bounded context on stdin:
 
@@ -84,10 +123,13 @@ securityllama config init
 securityllama session new
 securityllama session status
 securityllama session clear
+securityllama session name lab01-web
 securityllama scope init lab01
 securityllama scope use lab01
 securityllama scope show
 securityllama history
+securityllama note --bookmark "Validate the TLS observation manually"
+securityllama report --format markdown --output ./securityllama-report.md
 securityllama redact < captured-output.txt
 ```
 
@@ -161,7 +203,9 @@ structured findings, assumptions, and warnings. It does not include historical
 terminal captures or raw input files. Audits default to
 `~/.local/share/securityllama/sessions.db`, mode `0600`, and omit raw context.
 Set `[audit].enabled = false` to disable both audit records and persistent recent
-turn memory.
+turn memory. Session names, operator-authored notes, bookmarks, proposal
+dispositions, and exported reports are stored or written with owner-only
+permissions. Reports explicitly omit raw terminal context.
 
 ## Troubleshooting and removal
 

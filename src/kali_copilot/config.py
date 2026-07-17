@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from kali_copilot.paths import AppPaths, ensure_private_directory, resolve_paths
 
@@ -77,6 +77,43 @@ class UIConfig(StrictModel):
     popup_height_percent: int = Field(85, ge=30, le=100)
     shell_hotkey: str = "alt-a"
     tmux_binding: str = "A"
+    insert_hotkey: str = "alt-i"
+    ask_hotkey: str = "alt-q"
+    proposal_ttl_seconds: int = Field(300, ge=15, le=3600)
+    reduced_motion: bool = False
+    monochrome: bool = False
+    completion_bell: bool = False
+
+    @field_validator("shell_hotkey", "insert_hotkey", "ask_hotkey")
+    @classmethod
+    def valid_alt_hotkey(cls, value: str) -> str:
+        lowered = value.lower()
+        if len(lowered) != 5 or not lowered.startswith("alt-") or not lowered[-1].isalnum():
+            raise ValueError("must use the form alt-a through alt-z or alt-0 through alt-9")
+        return lowered
+
+    @field_validator("tmux_binding")
+    @classmethod
+    def valid_tmux_binding(cls, value: str) -> str:
+        if len(value) != 1 or not value.isalnum():
+            raise ValueError("must be one alphanumeric key")
+        return value
+
+    @model_validator(mode="after")
+    def distinct_shell_hotkeys(self) -> UIConfig:
+        values = {self.shell_hotkey, self.insert_hotkey, self.ask_hotkey}
+        if len(values) != 3:
+            raise ValueError("shell, insert, and ask hotkeys must be distinct")
+        return self
+
+
+class ModelProfile(StrictModel):
+    """Named interactive model tuning without changing endpoint identity."""
+
+    think: bool = False
+    num_ctx: int = Field(4096, ge=512, le=131072)
+    num_predict: int = Field(512, ge=1, le=8192)
+    temperature: float = Field(0.2, ge=0, le=2)
 
 
 class AuditConfig(StrictModel):
@@ -92,6 +129,12 @@ class AppConfig(StrictModel):
     policy: PolicyConfig = PolicyConfig()
     ui: UIConfig = UIConfig()
     audit: AuditConfig = AuditConfig()
+    profiles: dict[str, ModelProfile] = Field(
+        default_factory=lambda: {
+            "fast": ModelProfile(),
+            "deep": ModelProfile(think=True, num_ctx=8192, num_predict=1024, temperature=0.1),
+        }
+    )
 
 
 class ConfigError(ValueError):

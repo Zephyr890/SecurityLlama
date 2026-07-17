@@ -22,6 +22,33 @@ def _asset_dir() -> Path:
     return Path(sys.prefix) / "share" / "securityllama" / "shell"
 
 
+def _render_asset(name: str, content: str, paths: AppPaths) -> str:
+    """Apply validated UI bindings when shell assets are installed."""
+    from kali_copilot.config import ConfigError, load_config
+
+    try:
+        ui = load_config(paths).ui
+    except ConfigError:
+        return content
+    hotkeys = {
+        "alt-a": ui.shell_hotkey,
+        "alt-i": ui.insert_hotkey,
+        "alt-q": ui.ask_hotkey,
+    }
+    if name == "securityllama.zsh":
+        for default, selected in hotkeys.items():
+            content = content.replace(f"'^[{default[-1]}'", f"'^[{selected[-1]}'")
+    elif name == "securityllama.bash":
+        for default, selected in hotkeys.items():
+            content = content.replace(f'"\\e{default[-1]}"', f'"\\e{selected[-1]}"')
+    elif name == "securityllama.tmux.conf":
+        content = content.replace("bind-key A ", f"bind-key {ui.tmux_binding} ")
+        content = content.replace(
+            "-w 92% -h 85%", f"-w {ui.popup_width_percent}% -h {ui.popup_height_percent}%"
+        )
+    return content
+
+
 def _replace_block(path: Path, body: str) -> bool:
     existing = path.read_text(encoding="utf-8") if path.exists() else ""
     start = existing.find(BEGIN)
@@ -57,7 +84,8 @@ def install_shell(paths: AppPaths | None = None, home: Path | None = None) -> li
     installed: list[Path] = []
     for name in ("securityllama.zsh", "securityllama.bash", "securityllama.tmux.conf"):
         target = destination / name
-        shutil.copyfile(assets / name, target)
+        content = (assets / name).read_text(encoding="utf-8")
+        target.write_text(_render_asset(name, content, resolved), encoding="utf-8")
         target.chmod(0o600)
         installed.append(target)
     mappings = (

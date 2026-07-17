@@ -22,10 +22,12 @@ from kali_copilot.config import (
 from kali_copilot.context import ContextCollector
 from kali_copilot.doctor import run_doctor
 from kali_copilot.install import install_shell, remove_shell_blocks
-from kali_copilot.models import ShellWidgetResponse
+from kali_copilot.models import AssistantResponse, ContextPacket, ShellWidgetResponse
 from kali_copilot.ollama import InvalidModelResponseError, OllamaClient, OllamaError
 from kali_copilot.paths import resolve_paths
 from kali_copilot.policy import assess_proposal
+from kali_copilot.proposal import consume_proposal
+from kali_copilot.reporting import json_report, markdown_report
 from kali_copilot.sanitize import redact_secrets, sanitize_for_display
 from kali_copilot.scope import ScopeError, active_scope, initialize_scope, load_scope, use_scope
 from kali_copilot.session import clear_session, current_session, new_session
@@ -37,7 +39,7 @@ from kali_copilot.shell_bridge import (
     write_response,
 )
 from kali_copilot.tmux import TmuxError, copy_to_buffer
-from kali_copilot.ui import render_response
+from kali_copilot.ui import render_command_diff, render_response
 
 
 def _ask_with_default(prompt_text: str, default: str) -> str:
@@ -94,6 +96,21 @@ def _tunnel_command(config: AppConfig) -> str:
     return shlex.join(args)
 
 
+def _interactive_chat(config: AppConfig, packet: ContextPacket) -> AssistantResponse:
+    """Show elapsed model progress in interactive popup/widget surfaces."""
+    from rich.console import Console
+
+    from kali_copilot.cockpit import RequestProgress
+
+    with RequestProgress(
+        Console(no_color=config.ui.monochrome), reduced_motion=config.ui.reduced_motion
+    ) as progress:
+        progress.phase(f"waiting for {config.ollama.model}")
+        response = OllamaClient(config).chat(packet)
+        progress.phase("structured response validated")
+        return response
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the top-level argument parser."""
     parser = argparse.ArgumentParser(
@@ -129,11 +146,16 @@ def build_parser() -> argparse.ArgumentParser:
     response_parser = subparsers.add_parser("_extract-widget-response")
     response_parser.add_argument("--response-file", required=True)
     response_parser.add_argument("--command-file", required=True)
+    consume_parser = subparsers.add_parser("_consume-proposal")
+    consume_parser.add_argument("--pane", required=True)
+    consume_parser.add_argument("--command-file", required=True)
     session_parser = subparsers.add_parser("session")
     session_subparsers = session_parser.add_subparsers(dest="session_command", required=True)
     session_subparsers.add_parser("new")
     session_subparsers.add_parser("status")
     session_subparsers.add_parser("clear")
+    session_name = session_subparsers.add_parser("name")
+    session_name.add_argument("name")
     scope_parser = subparsers.add_parser("scope")
     scope_subparsers = scope_parser.add_subparsers(dest="scope_command", required=True)
     scope_init = scope_subparsers.add_parser("init")
@@ -145,6 +167,14 @@ def build_parser() -> argparse.ArgumentParser:
     scope_show.add_argument("name", nargs="?")
     history_parser = subparsers.add_parser("history")
     history_parser.add_argument("--limit", type=int, default=20)
+    cockpit_parser = subparsers.add_parser("cockpit", help="open the multi-turn tmux cockpit")
+    cockpit_parser.add_argument("--pane", required=True)
+    note_parser = subparsers.add_parser("note", help="add a redacted operator note")
+    note_parser.add_argument("text")
+    note_parser.add_argument("--bookmark", action="store_true")
+    report_parser = subparsers.add_parser("report", help="export the current redacted session")
+    report_parser.add_argument("--format", choices=("markdown", "json"), default="markdown")
+    report_parser.add_argument("--output")
     subparsers.add_parser("install-shell")
     subparsers.add_parser("uninstall-shell")
     subparsers.add_parser("doctor")
@@ -174,6 +204,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 state = new_session()
             elif args.session_command == "clear":
                 state = clear_session()
+            elif args.session_command == "name":
+                state = current_session()
+                with AuditStore(resolve_paths().database_file) as store:
+                    store.name_session(state.session_id, args.name)
             else:
                 state = current_session()
             print(state.session_id)
@@ -192,6 +226,34 @@ def main(argv: Sequence[str] | None = None) -> int:
                 for item in store.history(max(1, min(args.limit, 100))):
                     print(json.dumps(item, sort_keys=True))
             return 0
+        if args.command == "note":
+            state = current_session()
+            safe_note = redact_secrets(sanitize_for_display(args.text)).text
+            with AuditStore(resolve_paths().database_file) as store:
+                print(store.add_note(state.session_id, safe_note, bookmarked=args.bookmark))
+            return 0
+        if args.command == "report":
+            from pathlib import Path
+
+            state = current_session()
+            with AuditStore(resolve_paths().database_file) as store:
+                content = (
+                    markdown_report(store, state.session_id)
+                    if args.format == "markdown"
+                    else json_report(store, state.session_id)
+                )
+            if args.output:
+                output = Path(args.output).expanduser().resolve()
+                output.write_text(content, encoding="utf-8")
+                output.chmod(0o600)
+                print(output)
+            else:
+                print(content)
+            return 0
+        if args.command == "cockpit":
+            from kali_copilot.cockpit import Cockpit
+
+            return Cockpit(load_config(), args.pane).run()
         if args.command == "install-shell":
             for path in install_shell():
                 print(path)
@@ -248,7 +310,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             mode = modes.get(choice, "ask")
             question = prompt("Question: ").strip() or "Analyze the recent output."
             packet = ContextCollector(config).collect_tmux(args.pane, mode, question)
-            response = OllamaClient(config).chat(packet)
+            response = _interactive_chat(config, packet)
             render_response(response)
             if response.proposed_command and args.read_only:
                 assessment = assess_proposal(response, active_scope(), config.policy)
@@ -278,6 +340,26 @@ def main(argv: Sequence[str] | None = None) -> int:
 
             print(extract_response(Path(args.response_file), Path(args.command_file)))
             return 0
+        if args.command == "_consume-proposal":
+            from pathlib import Path
+
+            from kali_copilot.shell_bridge import write_private_json
+
+            paths = resolve_paths()
+            pending = consume_proposal(
+                session_id=current_session(paths).session_id,
+                pane_id=args.pane,
+                paths=paths,
+            )
+            if pending is None:
+                print("none")
+                return 0
+            write_private_json(Path(args.command_file), pending.command)
+            if pending.interaction_id and load_config().audit.enabled:
+                with AuditStore(paths.database_file) as store:
+                    store.update_disposition(pending.interaction_id, "inserted")
+            print("insert")
+            return 0
         if args.command == "shell-widget":
             from pathlib import Path
 
@@ -303,12 +385,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                     "redactions": redacted_buffer.records,
                 }
             )
-            response = OllamaClient(config).chat(packet)
+            response = _interactive_chat(config, packet)
             render_response(response)
             widget_result = ShellWidgetResponse(action="none", message="No proposal selected.")
             if response.proposed_command:
                 assessment = assess_proposal(response, active_scope(), config.policy)
                 print(assessment.model_dump_json(indent=2))
+                render_command_diff(request.buffer, response.proposed_command)
                 expected = "INSERT" if assessment.confirmation_required else "i"
                 confirmation = prompt(
                     f"Type {expected} to place this command at the prompt: "

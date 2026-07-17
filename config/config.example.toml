@@ -46,6 +46,25 @@ popup_width_percent = 92
 popup_height_percent = 85
 shell_hotkey = "alt-a"
 tmux_binding = "A"
+insert_hotkey = "alt-i"
+ask_hotkey = "alt-q"
+proposal_ttl_seconds = 300
+reduced_motion = false
+monochrome = false
+completion_bell = false
+
+# Cockpit profiles adjust model effort without changing the endpoint or model name.
+[profiles.fast]
+think = false
+num_ctx = 4096
+num_predict = 512
+temperature = 0.2
+
+[profiles.deep]
+think = true
+num_ctx = 8192
+num_predict = 1024
+temperature = 0.1
 
 # Audits retain redacted metadata and validated responses, never raw context by default.
 [audit]

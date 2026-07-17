@@ -11,7 +11,7 @@ from pathlib import Path
 from kali_copilot.models import AssistantResponse, ContextPacket, ConversationTurn, PolicyAssessment
 from kali_copilot.paths import ensure_private_directory
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 def _response_memory(response: AssistantResponse) -> str:
@@ -69,7 +69,40 @@ class AuditStore:
                     summary TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
-                PRAGMA user_version = 1;
+                CREATE TABLE session_metadata (
+                    session_id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE TABLE session_notes (
+                    id TEXT PRIMARY KEY,
+                    session_id TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    body TEXT NOT NULL,
+                    bookmarked INTEGER NOT NULL DEFAULT 0
+                );
+                PRAGMA user_version = 2;
+                """
+            )
+            self.connection.commit()
+        elif version == 1:
+            self.connection.executescript(
+                """
+                CREATE TABLE session_metadata (
+                    session_id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE TABLE session_notes (
+                    id TEXT PRIMARY KEY,
+                    session_id TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    body TEXT NOT NULL,
+                    bookmarked INTEGER NOT NULL DEFAULT 0
+                );
+                PRAGMA user_version = 2;
                 """
             )
             self.connection.commit()
@@ -132,6 +165,66 @@ class AuditStore:
             "SELECT id, created_at, mode, question, proposed_command, disposition "
             "FROM interactions ORDER BY created_at DESC LIMIT ?",
             (limit,),
+        )
+        columns = [item[0] for item in cursor.description]
+        return [dict(zip(columns, row, strict=True)) for row in cursor.fetchall()]
+
+    def session_history(self, session_id: str, limit: int = 100) -> list[dict[str, object]]:
+        cursor = self.connection.execute(
+            "SELECT id, created_at, mode, question, response_json, proposed_command, "
+            "policy_json, disposition FROM interactions WHERE session_id=? "
+            "ORDER BY created_at ASC LIMIT ?",
+            (session_id, limit),
+        )
+        columns = [item[0] for item in cursor.description]
+        return [dict(zip(columns, row, strict=True)) for row in cursor.fetchall()]
+
+    def update_disposition(self, interaction_id: str, disposition: str) -> None:
+        """Record an operator action without changing the proposal text."""
+        if disposition not in {"none", "staged", "inserted", "copied", "rejected", "expired"}:
+            raise ValueError("invalid proposal disposition")
+        self.connection.execute(
+            "UPDATE interactions SET disposition=? WHERE id=?", (disposition, interaction_id)
+        )
+        self.connection.commit()
+
+    def name_session(self, session_id: str, name: str) -> None:
+        cleaned = name.strip()[:128]
+        if not cleaned:
+            raise ValueError("session name cannot be empty")
+        now = datetime.now(UTC).isoformat()
+        self.connection.execute(
+            "INSERT INTO session_metadata(session_id, name, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?) ON CONFLICT(session_id) DO UPDATE SET "
+            "name=excluded.name, updated_at=excluded.updated_at",
+            (session_id, cleaned, now, now),
+        )
+        self.connection.commit()
+
+    def session_name(self, session_id: str) -> str | None:
+        row = self.connection.execute(
+            "SELECT name FROM session_metadata WHERE session_id=?", (session_id,)
+        ).fetchone()
+        return str(row[0]) if row else None
+
+    def add_note(self, session_id: str, body: str, *, bookmarked: bool = False) -> str:
+        cleaned = body.strip()[:12000]
+        if not cleaned:
+            raise ValueError("note cannot be empty")
+        note_id = uuid.uuid4().hex
+        self.connection.execute(
+            "INSERT INTO session_notes(id, session_id, created_at, body, bookmarked) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (note_id, session_id, datetime.now(UTC).isoformat(), cleaned, int(bookmarked)),
+        )
+        self.connection.commit()
+        return note_id
+
+    def notes(self, session_id: str) -> list[dict[str, object]]:
+        cursor = self.connection.execute(
+            "SELECT id, created_at, body, bookmarked FROM session_notes "
+            "WHERE session_id=? ORDER BY created_at ASC",
+            (session_id,),
         )
         columns = [item[0] for item in cursor.description]
         return [dict(zip(columns, row, strict=True)) for row in cursor.fetchall()]

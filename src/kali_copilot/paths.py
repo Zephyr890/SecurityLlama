@@ -30,6 +30,10 @@ class AppPaths:
     def database_file(self) -> Path:
         return self.data_dir / "sessions.db"
 
+    @property
+    def proposals_dir(self) -> Path:
+        return self.runtime_dir / "proposals"
+
 
 def resolve_paths(environ: dict[str, str] | None = None) -> AppPaths:
     """Resolve paths using only the documented environment variables."""

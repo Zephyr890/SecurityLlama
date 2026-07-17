@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from kali_copilot.config import ConfigError, load_config
+from kali_copilot.config import ConfigError, UIConfig, load_config
 from kali_copilot.paths import AppPaths
 
 
@@ -29,3 +29,10 @@ def test_environment_overrides_toml(tmp_path: Path) -> None:
 def test_public_endpoint_rejected(tmp_path: Path) -> None:
     with pytest.raises(ConfigError, match="public Ollama endpoint rejected"):
         load_config(paths(tmp_path), {"SECURITYLLAMA_OLLAMA_URL": "https://models.example.com"})
+
+
+def test_ui_hotkeys_must_be_distinct() -> None:
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError, match="must be distinct"):
+        UIConfig(shell_hotkey="alt-a", insert_hotkey="alt-a")

@@ -2,12 +2,28 @@
 
 from __future__ import annotations
 
+import difflib
+
 from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
 
 from kali_copilot.models import AssistantResponse
 from kali_copilot.sanitize import sanitize_for_display
+
+
+def render_command_diff(before: str, after: str, *, console: Console | None = None) -> None:
+    """Show an inert one-line replacement diff before shell-buffer insertion."""
+    output = console or Console()
+    cleaned_before = sanitize_for_display(before)
+    cleaned_after = sanitize_for_display(after)
+    if cleaned_before == cleaned_after:
+        output.print("The proposed command matches the current buffer.", style="dim")
+        return
+    output.print("\nEditable-buffer change", style="bold")
+    for line in difflib.ndiff([cleaned_before], [cleaned_after]):
+        style = "red" if line.startswith("- ") else "green" if line.startswith("+ ") else "dim"
+        output.print(line, style=style, markup=False)
 
 
 def render_response(response: AssistantResponse, *, console: Console | None = None) -> None:

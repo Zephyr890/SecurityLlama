@@ -111,3 +111,28 @@ class ShellWidgetResponse(BoundaryModel):
         if value is not None and any(ord(char) < 32 or ord(char) == 127 for char in value):
             raise ValueError("command is not safe for a line-editing buffer")
         return value
+
+
+class PendingProposal(BoundaryModel):
+    """An inert, expiring command handoff for one originating shell pane."""
+
+    schema_version: Literal["1"] = "1"
+    proposal_id: str = Field(min_length=1, max_length=128)
+    interaction_id: str | None = Field(default=None, max_length=128)
+    session_id: str = Field(min_length=1, max_length=128)
+    pane_id: str = Field(min_length=1, max_length=64)
+    command: str = Field(min_length=1, max_length=16000)
+    explanation: str | None = Field(default=None, max_length=8000)
+    risk: Literal["none", "low", "medium", "high", "critical", "unknown"]
+    scope_status: Literal[
+        "not_applicable", "in_scope", "out_of_scope", "unknown", "no_active_scope"
+    ]
+    created_at: datetime
+    expires_at: datetime
+
+    @field_validator("command")
+    @classmethod
+    def safe_pending_command(cls, value: str) -> str:
+        if any(ord(char) < 32 or ord(char) == 127 for char in value):
+            raise ValueError("pending command is not safe for a line-editing buffer")
+        return value
