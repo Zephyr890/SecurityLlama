@@ -48,13 +48,28 @@ interactive experience on CPU-only hosts. Set `[ollama].think = true` in
 `~/.config/securityllama/config.toml` when deeper reasoning is worth the added
 latency.
 
-The bootstrap installs only required Debian packages, installs this package with
+The bootstrap checks for `python3` and `pipx` before using APT. When both are
+already present, it skips `apt-get update` and all Kali repository access;
+missing optional tools such as `xclip` do not force a repository refresh. When
+a core command is missing, the bootstrap uses APT to install it along with the
+standard Kali clipboard and shell helpers. It then installs this package with
 pipx, preserves existing configuration, installs an idempotent XDG desktop
 launcher, and removes obsolete SecurityLlama-managed shell/tmux blocks after
 backing up any affected user configuration. It is safe to rerun after `git
-pull`. Use `--no-apt` when dependencies are already managed, `--dev` for an
-editable pipx install, or `--scope NAME` to create/select a restrictive scope
-template.
+pull`.
+
+On restricted networks, force the bootstrap to avoid APT entirely when Python
+and pipx were provisioned separately:
+
+```sh
+./scripts/bootstrap-kali.sh --no-apt --wizard
+```
+
+`--no-apt` fails with the names of any missing core commands instead of trying a
+repository. It does not make pipx itself offline: the Python dependencies must
+already be cached or reachable through the configured Python package index. Use
+`--dev` for an editable pipx install, or `--scope NAME` to create/select a
+restrictive scope template.
 
 ## Use
 

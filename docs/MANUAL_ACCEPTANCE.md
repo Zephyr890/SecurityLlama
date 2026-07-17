@@ -10,6 +10,8 @@ VirtualBox Kali VM.
 1. Configure a VirtualBox host-only adapter. Keep Ollama bound to host loopback
    and create the SSH tunnel documented in the README, or run Ollama in Kali.
 2. Clone the repository and run the documented bootstrap command twice. Confirm
+   the second run reports that it skipped APT repository access when `python3`
+   and `pipx` are already available. Also confirm
    `~/.local/share/applications/securityllama-console.desktop` exists once,
    contains `Terminal=true`, and names the absolute pipx launcher. Confirm no
    SecurityLlama managed block remains in `.zshrc`, `.bashrc`, or `.tmux.conf`.
