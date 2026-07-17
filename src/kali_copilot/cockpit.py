@@ -12,6 +12,7 @@ from time import monotonic
 from types import TracebackType
 
 from prompt_toolkit import prompt
+from prompt_toolkit.key_binding import KeyBindings, KeyPressEvent
 from rich.console import Console
 from rich.panel import Panel
 from rich.status import Status
@@ -28,12 +29,17 @@ from kali_copilot.attachments import (
     read_attachments,
 )
 from kali_copilot.audit import AuditStore
+from kali_copilot.background import (
+    BackgroundJobError,
+    list_jobs,
+    mark_viewed,
+    start_job,
+)
 from kali_copilot.config import AppConfig, ModelProfile
 from kali_copilot.context import ContextCollector
-from kali_copilot.models import AssistantResponse, ContextPacket, PolicyAssessment
-from kali_copilot.ollama import OllamaClient, OllamaError
+from kali_copilot.models import AssistantResponse, BackgroundJob, ContextPacket, PolicyAssessment
+from kali_copilot.ollama import OllamaClient
 from kali_copilot.paths import resolve_paths
-from kali_copilot.policy import assess_proposal
 from kali_copilot.prompting import chat_messages
 from kali_copilot.proposal import stage_proposal
 from kali_copilot.reporting import markdown_report
@@ -53,6 +59,7 @@ HELP = """Cockpit commands
   /mode ask|explain|review|suggest
   /context                      inspect the next model request
   /status                       check endpoint, model, scope, and session
+  /jobs, /last                 check requests or show the newest result
   /include terminal|memory|scope on|off
   /attach PATH                   attach a text file to this session
   /attachments                   list session attachments
@@ -69,11 +76,31 @@ HELP = """Cockpit commands
   /report PATH                  export a redacted Markdown report
   /new                          begin a new logical session
   /clear                        clear the screen (does not erase audits)
-  /quit                         close the cockpit
+  /quit, /q                     close the cockpit
 
-Ctrl-C cancels the current wait when supported by the HTTP transport. No command
-is executed by the cockpit. Alt-I in the originating shell retrieves staged text.
+Alt-Q (or Esc then Q), Ctrl-G, and Ctrl-D at an empty prompt also close the
+cockpit. Submitted requests continue in a detached process and appear when the
+cockpit is reopened. No command is executed by the cockpit. Alt-I in the
+originating shell retrieves staged text.
 """
+
+
+def cockpit_key_bindings() -> KeyBindings:
+    """Return close bindings that do not submit or execute shell text."""
+    bindings = KeyBindings()
+
+    @bindings.add("escape", "q")
+    def close_with_meta_q(event: KeyPressEvent) -> None:
+        event.app.exit(result="/quit")
+
+    @bindings.add("c-g")
+    def close_with_control_g(event: KeyPressEvent) -> None:
+        event.app.exit(result="/quit")
+
+    return bindings
+
+
+COCKPIT_KEY_BINDINGS = cockpit_key_bindings()
 
 
 @dataclass
@@ -81,6 +108,7 @@ class ProposalItem:
     response: AssistantResponse
     assessment: PolicyAssessment
     interaction_id: str | None
+    pane_id: str
 
 
 @dataclass
@@ -161,22 +189,6 @@ def _profiled_config(config: AppConfig, profile: ModelProfile) -> AppConfig:
     )
 
 
-def _safe_response(response: AssistantResponse) -> AssistantResponse:
-    def clean(value: str) -> str:
-        return redact_secrets(strip_terminal_sequences(value)).text
-
-    return response.model_copy(
-        update={
-            "answer": clean(response.answer),
-            "proposed_command": clean(response.proposed_command or "") or None,
-            "command_explanation": clean(response.command_explanation or "") or None,
-            "warnings": [clean(item) for item in response.warnings],
-            "findings": [clean(item) for item in response.findings],
-            "assumptions": [clean(item) for item in response.assumptions],
-        }
-    )
-
-
 def context_usage(packet: ContextPacket, config: AppConfig) -> dict[str, int | bool]:
     """Return a transparent approximation; exact tokenization is model-specific."""
     messages = chat_messages(packet)
@@ -204,6 +216,7 @@ class Cockpit:
         self.paths = resolve_paths()
         self._last_attachments = AttachmentBundle("", [], [], False, 0)
         self._last_terminal_chars = 0
+        self._loaded_job_ids: set[str] = set()
 
     @property
     def config(self) -> AppConfig:
@@ -334,42 +347,109 @@ class Cockpit:
             )
             return
         self.state.last_question = question
-        packet: ContextPacket
         try:
             with RequestProgress(
                 self.console, reduced_motion=self.config.ui.reduced_motion
             ) as progress:
                 packet = self._packet(question)
-                progress.phase(f"waiting for {self.config.ollama.model}")
-                response = OllamaClient(self.config).chat(packet)
-                progress.phase("checking local scope and risk policy")
-                assessment = assess_proposal(response, active_scope(self.paths), self.config.policy)
-            interaction_id = None
-            if self.config.audit.enabled:
-                from urllib.parse import urlsplit
+                progress.phase("starting detached Ollama request")
+                job = start_job(
+                    self.config,
+                    packet,
+                    active_scope(self.paths),
+                    pane_id=self.state.pane_id,
+                    paths=self.paths,
+                )
+            self.console.print(
+                f"Request {job.job_id[:8]} is running in the background. "
+                "Close with Alt-Q and reopen later, or use /last to check it."
+            )
+        except KeyboardInterrupt:
+            self.console.print(
+                "Submission cancelled before a background request started.", style="yellow"
+            )
+        except BackgroundJobError as exc:
+            self.console.print(
+                f"Could not start request: {sanitize_for_display(str(exc))}", style="red"
+            )
+        except AttachmentError as exc:
+            self.console.print(f"Attachment error: {sanitize_for_display(str(exc))}", style="red")
 
-                with AuditStore(self.paths.database_file) as store:
-                    interaction_id = store.record(
-                        packet,
-                        _safe_response(response),
-                        assessment,
-                        endpoint_host=urlsplit(self.config.ollama.base_url).hostname or "unknown",
-                        model=self.config.ollama.model,
-                    )
-            render_response(response, console=self.console)
-            if response.proposed_command:
-                self.state.proposals.append(ProposalItem(response, assessment, interaction_id))
-                self.state.selected = len(self.state.proposals) - 1
-                self._show_proposal()
+    def _render_job(self, job: BackgroundJob, *, force: bool = False) -> None:
+        if job.status in {"starting", "running"}:
+            self.console.print(
+                f"Request {job.job_id[:8]} is still running with {sanitize_for_display(job.model)}."
+            )
+            return
+        if job.status == "failed":
+            self.console.print(
+                f"Request {job.job_id[:8]} failed: "
+                f"{sanitize_for_display(job.error or 'unknown background error')}",
+                style="red",
+            )
+            if job.viewed_at is None:
+                mark_viewed(job, self.paths)
+            return
+        if job.response is None or job.assessment is None:
+            self.console.print(
+                f"Request {job.job_id[:8]} has an invalid empty result.", style="red"
+            )
+            return
+        already_loaded = job.job_id in self._loaded_job_ids
+        if force or not already_loaded:
+            completed_at = job.finished_at.isoformat() if job.finished_at else "completed"
+            self.console.print(
+                f"\nBackground answer {job.job_id[:8]} · {completed_at}",
+                style="bold cyan",
+            )
+            render_response(job.response, console=self.console)
+        if job.response.proposed_command and not already_loaded:
+            self.state.proposals.append(
+                ProposalItem(job.response, job.assessment, job.interaction_id, job.pane_id)
+            )
+            self.state.selected = len(self.state.proposals) - 1
+            self._show_proposal()
+        self._loaded_job_ids.add(job.job_id)
+        if job.error:
+            self.console.print(sanitize_for_display(job.error), style="yellow")
+        if job.viewed_at is None:
+            mark_viewed(job, self.paths)
             if self.config.ui.completion_bell:
                 sys.stdout.write("\a")
                 sys.stdout.flush()
-        except KeyboardInterrupt:
-            self.console.print("Request cancelled; no proposal was staged.", style="yellow")
-        except OllamaError as exc:
-            self.console.print(f"Request failed: {sanitize_for_display(str(exc))}", style="red")
-        except AttachmentError as exc:
-            self.console.print(f"Attachment error: {sanitize_for_display(str(exc))}", style="red")
+
+    def _restore_background_results(self) -> None:
+        session_id = current_session(self.paths).session_id
+        jobs = list_jobs(session_id, self.paths)
+        unseen = [job for job in reversed(jobs) if job.viewed_at is None]
+        for job in unseen:
+            self._render_job(job)
+        running = sum(job.status in {"starting", "running"} for job in jobs)
+        if running and not unseen:
+            self.console.print(
+                f"{running} background request(s) still running. Use /last to refresh.", style="dim"
+            )
+
+    def _show_jobs(self) -> None:
+        jobs = list_jobs(current_session(self.paths).session_id, self.paths)
+        if not jobs:
+            self.console.print("No background requests exist for this session.")
+            return
+        table = Table(title="Background requests")
+        table.add_column("ID")
+        table.add_column("Status")
+        table.add_column("Mode")
+        table.add_column("Model")
+        table.add_column("Submitted")
+        for job in jobs[:20]:
+            table.add_row(
+                job.job_id[:8],
+                job.status,
+                job.mode,
+                sanitize_for_display(job.model),
+                job.created_at.isoformat(),
+            )
+        self.console.print(table)
 
     def _set_disposition(self, item: ProposalItem, value: str) -> None:
         if item.interaction_id and self.config.audit.enabled:
@@ -385,7 +465,7 @@ class Cockpit:
             item.response,
             item.assessment,
             session_id=current_session(self.paths).session_id,
-            pane_id=self.state.pane_id,
+            pane_id=item.pane_id,
             ttl_seconds=self.config.ui.proposal_ttl_seconds,
             interaction_id=item.interaction_id,
             paths=self.paths,
@@ -393,7 +473,7 @@ class Cockpit:
         self._set_disposition(item, "staged")
         self.console.print(
             f"Proposal staged until {pending.expires_at.isoformat()}. Focus pane "
-            f"{self.state.pane_id} and press Alt-I; it will not execute."
+            f"{item.pane_id} and press Alt-I; it will not execute."
         )
 
     def _handle(self, line: str) -> bool:
@@ -477,6 +557,22 @@ class Cockpit:
                 current_session(self.paths).session_id, self.paths
             ).attachments
             self.console.print(f"Attachments: {len(attachments)}")
+            jobs = list_jobs(current_session(self.paths).session_id, self.paths)
+            self.console.print(
+                "Background requests: "
+                + ", ".join(
+                    f"{status}={sum(job.status == status for job in jobs)}"
+                    for status in ("running", "completed", "failed")
+                )
+            )
+        elif command == "/jobs":
+            self._show_jobs()
+        elif command == "/last":
+            jobs = list_jobs(current_session(self.paths).session_id, self.paths)
+            if jobs:
+                self._render_job(jobs[0], force=True)
+            else:
+                self.console.print("No background requests exist for this session.")
         elif command == "/proposals":
             self._show_proposal()
         elif command in {"/next", "/prev"}:
@@ -541,9 +637,10 @@ class Cockpit:
 
     def run(self) -> int:
         self._header()
+        self._restore_background_results()
         while True:
             try:
-                line = prompt("securityllama> ").strip()
+                line = prompt("securityllama> ", key_bindings=COCKPIT_KEY_BINDINGS).strip()
             except (EOFError, KeyboardInterrupt):
                 self.console.print("Closing cockpit.")
                 return 0

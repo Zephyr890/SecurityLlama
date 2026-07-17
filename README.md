@@ -62,7 +62,7 @@ operator must still press Enter. Prefix then A or Alt-Q opens the persistent,
 multi-turn tmux cockpit for the originating pane. The cockpit keeps assistant
 conversation separate from assessment commands and shell history.
 
-The cockpit shows an elapsed request animation, model/profile/session status,
+The cockpit shows background request status, model/profile/session status,
 validated responses, and an estimated context-window budget. Use `/context` to
 inspect included sources and `/include terminal|memory|scope on|off` to control
 the next request. Token counts are estimates because exact tokenization is
@@ -100,6 +100,7 @@ Useful cockpit commands include:
 ```text
 /help                       keyboard and command reference
 /status                     endpoint, model, scope, and session status
+/jobs  /last                list requests or show the newest result
 /mode ask|explain|review|suggest
 /profile fast|deep
 /context
@@ -112,13 +113,36 @@ Useful cockpit commands include:
 /note TEXT  /bookmark TEXT
 /name ENGAGEMENT_NAME
 /report /path/to/redacted-report.md
-/new  /clear  /quit
+/new  /clear  /quit  /q
 ```
 
-Ctrl-C cancels a model wait when supported by the HTTP transport. Reduced
-motion, monochrome output, completion bell, popup size, proposal lifetime, and
-all three shell shortcuts are configurable under `[ui]`. Rerun
+Reduced motion, monochrome output, completion bell, popup size, proposal lifetime,
+and all three shell shortcuts are configurable under `[ui]`. Rerun
 `securityllama install-shell` after changing bindings.
+
+Installed tmux integration records the absolute SecurityLlama executable path
+so a tmux server started before `~/.local/bin` was added to `PATH` can still
+open the cockpit from every working directory. Failed cockpit commands remain
+visible in the popup instead of disappearing immediately. Alt-Q explicitly
+restores the current zsh/Bash editable buffer when the cockpit closes. If an
+older shell still reports `"^[q" push-line`, reload it with `exec "$SHELL" -l`;
+the SecurityLlama binding should report `securityllama-open-cockpit`.
+
+At an idle cockpit prompt, Alt-Q toggles the cockpit closed; terminals that do
+not map Option to Meta can use Esc then Q, Ctrl-G, `/quit`, `/q`, or Ctrl-D on an
+empty prompt. Submitting a question captures and redacts its bounded context,
+starts a detached request, and immediately returns to the cockpit prompt. Close
+the popup and continue testing; the request continues without access to the
+shell. Reopening the same logical session displays unseen completed answers and
+restores policy-checked proposals. `/last` refreshes the newest request and
+`/jobs` lists up to 20 recent requests. Starting `/new` moves to a new logical
+session, so earlier results remain associated with the old session.
+
+Raw terminal and attachment context crosses to the detached worker through an
+anonymous pipe and is not written to background job state. Private `0600`
+runtime state contains the submitted question, status, sanitized validated
+answer, and inert proposal metadata so the cockpit can recover after closing.
+Completed answers still follow normal audit retention when auditing is enabled.
 
 Non-interactive modes also accept bounded context on stdin:
 

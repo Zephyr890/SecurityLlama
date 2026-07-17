@@ -44,4 +44,8 @@ tmux_binding = "L"
     assert "bindkey '^[o' securityllama-open-cockpit" in zsh
     assert "bind -x '\"\\er\":_securityllama_widget'" in bash
     assert "bind-key L" in tmux
+    assert "display-popup -EE" in tmux
+    assert '"securityllama" cockpit' not in tmux
     assert "-w 80% -h 70%" in tmux
+    assert 'local saved_buffer="$BUFFER" saved_cursor="$CURSOR"' in zsh
+    assert 'BUFFER="$saved_buffer"' in zsh

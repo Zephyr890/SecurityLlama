@@ -42,6 +42,13 @@ def _render_asset(name: str, content: str, paths: AppPaths) -> str:
         for default, selected in hotkeys.items():
             content = content.replace(f'"\\e{default[-1]}"', f'"\\e{selected[-1]}"')
     elif name == "securityllama.tmux.conf":
+        executable = shutil.which("securityllama")
+        sibling = Path(sys.executable).with_name("securityllama")
+        if executable is None and sibling.is_file():
+            executable = str(sibling)
+        if executable is not None:
+            escaped = executable.replace("\\", "\\\\").replace('"', '\\"')
+            content = content.replace("securityllama cockpit", f'"{escaped}" cockpit')
         content = content.replace("bind-key A ", f"bind-key {ui.tmux_binding} ")
         content = content.replace(
             "-w 92% -h 85%", f"-w {ui.popup_width_percent}% -h {ui.popup_height_percent}%"

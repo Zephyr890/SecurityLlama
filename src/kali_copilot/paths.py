@@ -38,6 +38,10 @@ class AppPaths:
     def attachments_dir(self) -> Path:
         return self.runtime_dir / "attachments"
 
+    @property
+    def jobs_dir(self) -> Path:
+        return self.runtime_dir / "jobs"
+
 
 def resolve_paths(environ: dict[str, str] | None = None) -> AppPaths:
     """Resolve paths using only the documented environment variables."""

@@ -13,6 +13,15 @@ until run in the project's VirtualBox Kali VM.
    `grep -c '>>> securityllama managed block >>>' ~/.zshrc ~/.bashrc` reports one
    block per file.
 3. Start a login zsh and `tmux new -s assessment`; run `securityllama doctor`.
+   Type inert text at the prompt, press Alt-Q, close the cockpit, and verify the
+   editable text and cursor position are unchanged. Run `bindkey '^[q'` and
+   verify it reports `securityllama-open-cockpit`, not zsh's `push-line`.
+   Reopen the cockpit and verify Alt-Q closes it from the idle cockpit prompt.
+   Repeat with Esc then Q, Ctrl-G, `/q`, `/quit`, and Ctrl-D on an empty prompt.
+   Submit a model request and verify the cockpit prompt returns immediately.
+   Close the popup, continue using the originating shell, wait for generation,
+   and reopen the cockpit. Verify the unseen answer appears, `/jobs` reports it
+   completed, `/last` redisplays it, and no command was typed or executed.
 4. Print synthetic scan-like output containing ANSI color and a fake bearer
    token. Press Prefix then A and verify the cockpit reports redaction and omits
    both the token and terminal controls. Run `/context` and verify the capture,
@@ -44,8 +53,12 @@ until run in the project's VirtualBox Kali VM.
     binary files are rejected.
 12. Enable reduced motion and monochrome output, reinstall shell integration,
     and confirm the selected settings and custom bindings work.
-13. Run uninstall without purge. Verify managed blocks and installed package are
-   gone while configuration and `sessions.db` remain.
+13. Temporarily make the installed cockpit command fail, invoke Prefix then A,
+    and verify the popup remains visible with the error. Restore the command,
+    reinstall shell integration, reload `~/.tmux.conf`, and verify the cockpit
+    opens from both the repository and an unrelated working directory.
+14. Run uninstall without purge. Verify managed blocks and installed package are
+    gone while configuration and `sessions.db` remain.
 
 Record the Kali version, VirtualBox version, tmux/zsh/Bash versions, exact
 commands, and observed pass/fail results below when this procedure is executed.

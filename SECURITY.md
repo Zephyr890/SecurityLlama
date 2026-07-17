@@ -15,6 +15,10 @@ operator action.
   are rejected for insertion.
 - Context is bounded and likely secrets are redacted before model submission.
 - Raw terminal context is not persisted by default.
+- Detached cockpit workers receive bounded, sanitized context through an
+  anonymous pipe. Private runtime job state contains the explicit question,
+  status, and sanitized validated response, but never captured terminal or
+  attached-file input. Workers have no shell-input or command-execution path.
 - Raw attached-file input is not written directly to attachment state, audit
   records, conversation memory, or reports. Private runtime state contains only
   explicit file references tied to a logical session. Contents are freshly
@@ -45,7 +49,8 @@ endpoint by the operator's explicit `/attach` action. A context estimate may
 under-count model-specific tokens; configured byte and line limits remain the
 authoritative local bounds. Validated model responses can quote or derive
 material from attached context and are retained by the normal audit and report
-features; inspect those outputs before retaining or sharing them.
+features and by private background result state; inspect those outputs before
+retaining or sharing them.
 
 ## Reporting
 

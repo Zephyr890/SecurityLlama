@@ -255,6 +255,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "install-shell":
             for path in install_shell():
                 print(path)
+            print('Reload the current shell with: exec "$SHELL" -l')
+            print("Inside an existing tmux server, then run: tmux source-file ~/.tmux.conf")
             return 0
         if args.command == "uninstall-shell":
             remove_shell_blocks()

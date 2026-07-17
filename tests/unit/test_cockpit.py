@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from rich.console import Console
 
 from kali_copilot.attachments import attach_file, load_attachment_state
-from kali_copilot.cockpit import Cockpit, context_usage
+from kali_copilot.cockpit import COCKPIT_KEY_BINDINGS, Cockpit, context_usage
 from kali_copilot.config import AppConfig, AuditConfig, ContextConfig, OllamaConfig
 from kali_copilot.models import ContextPacket, ConversationTurn, RedactionRecord
 from kali_copilot.paths import AppPaths
@@ -36,6 +36,12 @@ def test_context_usage_exposes_budget_sources_without_raw_text() -> None:
     assert usage["memory_turns"] == 1
     assert usage["redactions"] == 2
     assert usage["truncated"] is True
+
+
+def test_cockpit_has_meta_q_and_control_g_close_bindings() -> None:
+    keys = {tuple(str(key) for key in binding.keys) for binding in COCKPIT_KEY_BINDINGS.bindings}
+    assert ("Keys.Escape", "q") in keys
+    assert ("Keys.ControlG",) in keys
 
 
 def test_cockpit_packet_keeps_session_attachment_and_omits_raw_persistence(tmp_path) -> None:

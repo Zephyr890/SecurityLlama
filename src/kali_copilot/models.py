@@ -103,6 +103,27 @@ class PolicyAssessment(BoundaryModel):
     insertion_allowed: bool
 
 
+class BackgroundJob(BoundaryModel):
+    """Private runtime status for one detached cockpit request."""
+
+    schema_version: Literal["1"] = "1"
+    job_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    session_id: str = Field(min_length=1, max_length=128)
+    pane_id: str = Field(min_length=1, max_length=64)
+    mode: Literal["ask", "explain", "review", "suggest"]
+    question: str = Field(min_length=1, max_length=20000)
+    model: str = Field(min_length=1, max_length=255)
+    status: Literal["starting", "running", "completed", "failed"]
+    pid: int | None = Field(default=None, ge=1)
+    created_at: datetime
+    finished_at: datetime | None = None
+    response: AssistantResponse | None = None
+    assessment: PolicyAssessment | None = None
+    interaction_id: str | None = Field(default=None, max_length=128)
+    error: str | None = Field(default=None, max_length=2000)
+    viewed_at: datetime | None = None
+
+
 class ShellWidgetRequest(BoundaryModel):
     schema_version: Literal["1"] = "1"
     shell: str = Field(max_length=255)
