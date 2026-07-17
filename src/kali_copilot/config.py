@@ -57,6 +57,8 @@ class ContextConfig(StrictModel):
     recent_turns: int = Field(4, ge=0, le=20)
     summary_trigger_turns: int = Field(8, ge=2, le=100)
     summary_max_chars: int = Field(1200, ge=100, le=10000)
+    max_attachment_files: int = Field(8, ge=1, le=32)
+    max_attachment_file_bytes: int = Field(1_048_576, ge=1024, le=16_777_216)
 
 
 class PrivacyConfig(StrictModel):

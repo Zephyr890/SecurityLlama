@@ -17,6 +17,16 @@ from rich.panel import Panel
 from rich.status import Status
 from rich.table import Table
 
+from kali_copilot.attachments import (
+    AttachmentBundle,
+    AttachmentError,
+    attach_file,
+    clear_attachments,
+    detach_file,
+    load_attachment_state,
+    merge_redactions,
+    read_attachments,
+)
 from kali_copilot.audit import AuditStore
 from kali_copilot.config import AppConfig, ModelProfile
 from kali_copilot.context import ContextCollector
@@ -27,7 +37,12 @@ from kali_copilot.policy import assess_proposal
 from kali_copilot.prompting import chat_messages
 from kali_copilot.proposal import stage_proposal
 from kali_copilot.reporting import markdown_report
-from kali_copilot.sanitize import redact_secrets, sanitize_for_display, strip_terminal_sequences
+from kali_copilot.sanitize import (
+    redact_secrets,
+    sanitize_for_display,
+    strip_terminal_sequences,
+    truncate_text,
+)
 from kali_copilot.scope import active_scope
 from kali_copilot.session import clear_session, current_session
 from kali_copilot.tmux import copy_to_buffer, validate_pane_id
@@ -39,6 +54,9 @@ HELP = """Cockpit commands
   /context                      inspect the next model request
   /status                       check endpoint, model, scope, and session
   /include terminal|memory|scope on|off
+  /attach PATH                   attach a text file to this session
+  /attachments                   list session attachments
+  /detach PATH|all               remove session attachments
   /profile NAME                 select a configured model profile
   /proposals, /next, /prev      inspect and select proposals
   /diff TEXT                    compare selected proposal with TEXT
@@ -184,6 +202,8 @@ class Cockpit:
         self.state = CockpitState(validate_pane_id(pane_id))
         self.console = console or Console(no_color=config.ui.monochrome)
         self.paths = resolve_paths()
+        self._last_attachments = AttachmentBundle("", [], [], False, 0)
+        self._last_terminal_chars = 0
 
     @property
     def config(self) -> AppConfig:
@@ -200,10 +220,32 @@ class Cockpit:
             from kali_copilot.app import make_basic_packet
 
             packet = make_basic_packet(self.state.mode, safe_question.text, "")
-            packet = packet.model_copy(
-                update={"pane_id": self.state.pane_id, "redactions": safe_question.records}
-            )
+            packet = packet.model_copy(update={"pane_id": self.state.pane_id, "redactions": []})
+        packet = packet.model_copy(update={"session_id": current_session(self.paths).session_id})
+        self._last_terminal_chars = len(packet.recent_output)
+        self._last_attachments = read_attachments(
+            packet.session_id,
+            max_file_bytes=self.config.context.max_attachment_file_bytes,
+            paths=self.paths,
+        )
+        combined_sections = []
+        if packet.recent_output:
+            combined_sections.append("TERMINAL_CONTEXT_BEGIN\n" + packet.recent_output)
+        if self._last_attachments.text:
+            combined_sections.append(self._last_attachments.text)
+        combined = truncate_text(
+            "\n\n".join(combined_sections),
+            self.config.context.max_capture_lines,
+            self.config.context.max_capture_bytes,
+        )
         updates: dict[str, object] = {}
+        updates["recent_output"] = combined.text
+        updates["capture_truncated"] = (
+            packet.capture_truncated or self._last_attachments.truncated or combined.truncated
+        )
+        updates["redactions"] = merge_redactions(
+            [*packet.redactions, *safe_question.records, *self._last_attachments.redactions]
+        )
         scope = active_scope(self.paths) if self.state.include_scope else None
         updates["active_scope"] = scope.summary() if scope else None
         if self.state.include_memory and self.config.audit.enabled:
@@ -224,6 +266,9 @@ class Cockpit:
             f"pane {self.state.pane_id} · mode {self.state.mode} · "
             f"profile {self.state.profile_name} · model {self.config.ollama.model}"
         )
+        attachments = load_attachment_state(session, self.paths).attachments
+        if attachments:
+            subtitle += f" · {len(attachments)} attached"
         self.console.print(Panel(subtitle, title=title, border_style="cyan"))
         self.console.print("Type a question or /help. Proposals are never executed.", style="dim")
         if self.config.audit.enabled:
@@ -241,7 +286,10 @@ class Cockpit:
             ("Estimated request", f"{usage['estimated_request']} ({usage['estimated_percent']}%)"),
             ("Reserved response", str(usage["reserved_response"])),
             ("Question", f"{usage['question_chars']} chars"),
-            ("Terminal capture", f"{usage['terminal_chars']} chars"),
+            ("Terminal capture", f"{self._last_terminal_chars} chars"),
+            ("Attached files", str(len(self._last_attachments.attachments))),
+            ("Attachment source", f"{self._last_attachments.original_bytes} bytes"),
+            ("Attachment context", f"{len(self._last_attachments.text)} chars before total bound"),
             ("Editable buffer", f"{usage['buffer_chars']} chars"),
             ("Conversation memory", f"{usage['memory_turns']} turns"),
             ("Redactions", str(usage["redactions"])),
@@ -279,6 +327,12 @@ class Cockpit:
             self.console.print(f"  - {sanitize_for_display(reason)}", style="yellow")
 
     def _ask(self, question: str) -> None:
+        if len(question) > self.config.context.max_question_chars:
+            self.console.print(
+                f"Question exceeds the {self.config.context.max_question_chars}-character limit.",
+                style="red",
+            )
+            return
         self.state.last_question = question
         packet: ContextPacket
         try:
@@ -314,6 +368,8 @@ class Cockpit:
             self.console.print("Request cancelled; no proposal was staged.", style="yellow")
         except OllamaError as exc:
             self.console.print(f"Request failed: {sanitize_for_display(str(exc))}", style="red")
+        except AttachmentError as exc:
+            self.console.print(f"Attachment error: {sanitize_for_display(str(exc))}", style="red")
 
     def _set_disposition(self, item: ProposalItem, value: str) -> None:
         if item.interaction_id and self.config.audit.enabled:
@@ -374,6 +430,35 @@ class Cockpit:
                 self.console.print("Usage: /include terminal|memory|scope on|off")
             else:
                 setattr(self.state, mapping[args[0]], args[1] == "on")
+        elif command == "/attach" and len(args) == 1:
+            reference = attach_file(
+                current_session(self.paths).session_id,
+                args[0],
+                max_files=self.config.context.max_attachment_files,
+                max_file_bytes=self.config.context.max_attachment_file_bytes,
+                paths=self.paths,
+            )
+            self.console.print(f"Attached for this session: {sanitize_for_display(reference.path)}")
+        elif command == "/attachments":
+            attachment_state = load_attachment_state(
+                current_session(self.paths).session_id, self.paths
+            )
+            if not attachment_state.attachments:
+                self.console.print("No files are attached to this session.")
+            for index, reference in enumerate(attachment_state.attachments, start=1):
+                self.console.print(
+                    f"{index}. {sanitize_for_display(reference.path)} "
+                    f"(added {reference.added_at.isoformat()})"
+                )
+        elif command == "/detach" and len(args) == 1:
+            session_id = current_session(self.paths).session_id
+            if args[0].lower() == "all":
+                count = clear_attachments(session_id, self.paths)
+                self.console.print(f"Detached {count} file(s) from this session.")
+            elif detach_file(session_id, args[0], self.paths):
+                self.console.print(f"Detached: {sanitize_for_display(args[0])}")
+            else:
+                self.console.print("That file is not attached to this session.")
         elif command == "/context":
             self._show_context(
                 self._packet(self.state.last_question or "Analyze the recent output.")
@@ -388,6 +473,10 @@ class Cockpit:
             self.console.print(f"Model: {self.config.ollama.model}")
             self.console.print(f"Scope: {scope.name if scope else 'none active'} (advisory)")
             self.console.print(f"Session: {current_session(self.paths).session_id}")
+            attachments = load_attachment_state(
+                current_session(self.paths).session_id, self.paths
+            ).attachments
+            self.console.print(f"Attachments: {len(attachments)}")
         elif command == "/proposals":
             self._show_proposal()
         elif command in {"/next", "/prev"}:
@@ -442,10 +531,10 @@ class Cockpit:
             target.chmod(0o600)
             self.console.print(f"Redacted report written to {target}")
         elif command == "/new":
-            state = clear_session(self.paths)
+            session_state = clear_session(self.paths)
             self.state.proposals.clear()
             self.state.selected = -1
-            self.console.print(f"New session: {state.session_id}")
+            self.console.print(f"New session: {session_state.session_id}")
         else:
             self.console.print("Unknown cockpit command. Use /help.")
         return True
@@ -461,7 +550,12 @@ class Cockpit:
             if not line:
                 continue
             if line.startswith("/"):
-                if not self._handle(line):
-                    return 0
+                try:
+                    if not self._handle(line):
+                        return 0
+                except AttachmentError as exc:
+                    self.console.print(
+                        f"Attachment error: {sanitize_for_display(str(exc))}", style="red"
+                    )
             else:
                 self._ask(line)

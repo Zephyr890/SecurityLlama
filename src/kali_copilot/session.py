@@ -53,4 +53,9 @@ def current_session(paths: AppPaths | None = None) -> SessionState:
 
 
 def clear_session(paths: AppPaths | None = None) -> SessionState:
-    return new_session(paths)
+    resolved = paths or resolve_paths()
+    previous = current_session(resolved)
+    from kali_copilot.attachments import clear_attachments
+
+    clear_attachments(previous.session_id, resolved)
+    return new_session(resolved)

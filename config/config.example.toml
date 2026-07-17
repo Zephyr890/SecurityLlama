@@ -26,6 +26,8 @@ max_question_chars = 4000
 recent_turns = 4
 summary_trigger_turns = 8
 summary_max_chars = 1200
+max_attachment_files = 8
+max_attachment_file_bytes = 1048576
 
 # Redaction is enabled and raw terminal context is not persisted by default.
 [privacy]

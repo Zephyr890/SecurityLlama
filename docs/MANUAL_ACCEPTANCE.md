@@ -35,9 +35,16 @@ until run in the project's VirtualBox Kali VM.
 10. In the cockpit, add a note and bookmark, name the session, and export a
     report. Verify the report is mode `0600`, contains the redacted interaction
     meaning and dispositions, and does not contain the synthetic raw capture.
-11. Enable reduced motion and monochrome output, reinstall shell integration,
+11. Create a synthetic text file containing ANSI controls and a fake token. Use
+    `/attach PATH`, close and reopen the cockpit, and verify `/attachments` still
+    lists it. Ask a question and confirm controls and the token are absent from
+    the model context. Verify `/context` shows attachment counts and bounds.
+    Detach it and confirm it is absent. Reattach it, run `/new`, and confirm the
+    new session has no attachments. Also verify symlinks and NUL-containing
+    binary files are rejected.
+12. Enable reduced motion and monochrome output, reinstall shell integration,
     and confirm the selected settings and custom bindings work.
-12. Run uninstall without purge. Verify managed blocks and installed package are
+13. Run uninstall without purge. Verify managed blocks and installed package are
    gone while configuration and `sessions.db` remain.
 
 Record the Kali version, VirtualBox version, tmux/zsh/Bash versions, exact

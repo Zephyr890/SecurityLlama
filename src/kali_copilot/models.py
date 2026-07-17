@@ -31,6 +31,21 @@ class ConversationTurn(BoundaryModel):
     answer: str = Field(max_length=12000)
 
 
+class AttachmentRef(BoundaryModel):
+    """A runtime-only reference to operator-selected context."""
+
+    path: str = Field(min_length=1, max_length=4096)
+    device: int = Field(ge=0)
+    inode: int = Field(ge=0)
+    added_at: datetime
+
+
+class AttachmentState(BoundaryModel):
+    schema_version: Literal["1"] = "1"
+    session_id: str = Field(min_length=1, max_length=128)
+    attachments: list[AttachmentRef] = Field(default_factory=list, max_length=32)
+
+
 class ContextPacket(BoundaryModel):
     schema_version: Literal["1"] = "1"
     session_id: str = Field(min_length=1, max_length=128)

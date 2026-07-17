@@ -69,6 +69,25 @@ the next request. Token counts are estimates because exact tokenization is
 model-specific. Captured text remains bounded, sanitized, redacted, and omitted
 from persistent audit storage.
 
+Attach text evidence to the current logical session with `/attach PATH`:
+
+```text
+/attach /home/kali/assessment/nmap-results.txt
+/attachments
+/detach /home/kali/assessment/nmap-results.txt
+/detach all
+```
+
+Attachments remain active when the cockpit is closed and reopened. They stop
+contributing to context when explicitly detached or when `/new`, `session new`,
+or `session clear` starts a new logical session. SecurityLlama stores only
+private runtime references—not file contents—and re-reads each file for every
+request. Replaced files must be detached and reattached. Symlinks, non-regular
+files, binary files containing NUL bytes, oversized files, and unreadable files
+are rejected. Terminal controls and likely secrets are removed before attached
+text is sent to Ollama. All terminal and attachment text shares the configured
+context bounds, so `/context` reports when combined input was truncated.
+
 When a proposal passes local policy, `/insert` stages it for the originating
 pane in a private, expiring runtime file. Return to an empty shell prompt and
 press Alt-I to place that exact single-line proposal in the editable buffer.
@@ -85,6 +104,7 @@ Useful cockpit commands include:
 /profile fast|deep
 /context
 /include terminal|memory|scope on|off
+/attach PATH  /attachments  /detach PATH|all
 /proposals  /next  /prev
 /alternative Prefer a passive validation
 /diff CURRENT_COMMAND

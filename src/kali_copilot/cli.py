@@ -30,7 +30,7 @@ from kali_copilot.proposal import consume_proposal
 from kali_copilot.reporting import json_report, markdown_report
 from kali_copilot.sanitize import redact_secrets, sanitize_for_display
 from kali_copilot.scope import ScopeError, active_scope, initialize_scope, load_scope, use_scope
-from kali_copilot.session import clear_session, current_session, new_session
+from kali_copilot.session import clear_session, current_session
 from kali_copilot.shell_bridge import (
     ShellBridgeError,
     create_request,
@@ -200,9 +200,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 print(json.dumps(load_config().model_dump(mode="json"), indent=2, sort_keys=True))
             return 0
         if args.command == "session":
-            if args.session_command == "new":
-                state = new_session()
-            elif args.session_command == "clear":
+            if args.session_command == "new" or args.session_command == "clear":
                 state = clear_session()
             elif args.session_command == "name":
                 state = current_session()

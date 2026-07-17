@@ -15,6 +15,12 @@ operator action.
   are rejected for insertion.
 - Context is bounded and likely secrets are redacted before model submission.
 - Raw terminal context is not persisted by default.
+- Raw attached-file input is not written directly to attachment state, audit
+  records, conversation memory, or reports. Private runtime state contains only
+  explicit file references tied to a logical session. Contents are freshly
+  read, terminal-sanitized, secret-redacted, and bounded for each request.
+- Attachments must be regular non-symlink files. A replaced file identity is
+  rejected until the operator explicitly detaches and reattaches it.
 - Cross-pane proposals are staged as validated inert JSON in a private runtime
   directory, are scoped to one logical session and tmux pane, expire, and are
   consumed at most once.
@@ -34,6 +40,12 @@ security boundary. Context-source toggles affect model disclosure but never
 disable response validation, terminal-control stripping, secret redaction, or
 local proposal policy. Operator notes are persistent by explicit action and
 should not contain credentials or unredacted sensitive target data.
+Attachment paths and sanitized content are disclosed to the configured Ollama
+endpoint by the operator's explicit `/attach` action. A context estimate may
+under-count model-specific tokens; configured byte and line limits remain the
+authoritative local bounds. Validated model responses can quote or derive
+material from attached context and are retained by the normal audit and report
+features; inspect those outputs before retaining or sharing them.
 
 ## Reporting
 
