@@ -10,6 +10,7 @@ from kali_copilot.background import list_jobs, load_job, mark_viewed, run_job, s
 from kali_copilot.config import AppConfig, AuditConfig
 from kali_copilot.models import AssistantResponse, ContextPacket
 from kali_copilot.paths import AppPaths
+from kali_copilot.prompting import enforce_request_contract
 
 
 class _Pipe(io.BytesIO):
@@ -116,3 +117,32 @@ def test_secret_bearing_proposal_is_omitted_instead_of_rewritten() -> None:
 
     assert response.proposed_command is None
     assert any("omitted" in warning for warning in response.warnings)
+
+
+def test_conceptual_question_cannot_publish_model_generated_shell_command() -> None:
+    packet = _packet().model_copy(
+        update={
+            "question": "explain the basics of web app fuzzing with burpsuite community",
+            "shell": "/usr/bin/zsh -l",
+        }
+    )
+    response = enforce_request_contract(
+        AssistantResponse(
+            answer="Web fuzzing tests application inputs.",
+            proposed_command="/usr/bin/zsh -l",
+            command_explanation="Run the shell.",
+            risk="unknown",
+            requires_root=False,
+            network_effect="active",
+            warnings=["Network effect is active"],
+        ),
+        packet,
+    )
+
+    assert response.proposed_command is None
+    assert response.command_explanation is None
+    assert response.risk == "none"
+    assert response.network_effect == "none"
+    assert response.requires_root is None
+    assert "Network effect is active" not in response.warnings
+    assert any("did not ask for one" in warning for warning in response.warnings)

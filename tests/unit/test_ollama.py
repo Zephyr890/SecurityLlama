@@ -9,6 +9,7 @@ import pytest
 from kali_copilot.config import AppConfig, OllamaConfig
 from kali_copilot.models import ContextPacket
 from kali_copilot.ollama import InvalidModelResponseError, OllamaClient
+from kali_copilot.prompting import terminal_context_relevant
 
 
 def packet() -> ContextPacket:
@@ -121,6 +122,58 @@ def test_how_to_prompt_requires_actionable_command_details() -> None:
     assert "never claim that no findings were supplied" in system_prompt
     assert "put each ranked item in findings" in system_prompt
     assert "unverified leads, not confirmed vulnerabilities" in system_prompt
+    assert "TRUSTED_REQUEST_POLICY=ACTIONABLE" in system_prompt
+
+
+def test_conceptual_question_forbids_shell_proposal_and_metadata_copy() -> None:
+    requests: list[dict[str, object]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/tags":
+            return httpx.Response(200, json={"models": [{"name": "fixture-model"}]})
+        requests.append(json.loads(request.content))
+        mistaken = {
+            "schema_version": "1",
+            "answer": "Web fuzzing exercises application inputs.",
+            "proposed_command": "/usr/bin/zsh -l",
+            "command_explanation": "Run the shell.",
+            "risk": "unknown",
+            "requires_root": False,
+            "network_effect": "active",
+            "target_candidates": [],
+            "findings": [],
+            "warnings": ["Target is unknown", "Network effect is active"],
+            "assumptions": [],
+        }
+        return httpx.Response(200, json={"message": {"content": json.dumps(mistaken)}})
+
+    config = AppConfig(ollama=OllamaConfig(model="fixture-model"))
+    conceptual = packet().model_copy(
+        update={
+            "question": "explain the basics of web app fuzzing with burpsuite community",
+            "shell": "/usr/bin/zsh -l",
+        }
+    )
+    result = OllamaClient(config, httpx.MockTransport(handler)).chat(conceptual)
+    system_prompt = requests[0]["messages"][0]["content"]
+
+    assert "TRUSTED_REQUEST_POLICY=CONCEPTUAL" in system_prompt
+    assert "proposed_command and command_explanation must be null" in system_prompt
+    assert "Never propose a login shell" in system_prompt
+    assert result.proposed_command is None
+    assert result.network_effect == "none"
+    assert result.risk == "none"
+    assert result.warnings == [
+        "A model-generated command was omitted because this request did not ask for one."
+    ]
+
+
+def test_conceptual_ask_omits_unrelated_terminal_context() -> None:
+    question = "explain the basics of web app fuzzing with burpsuite community"
+
+    assert not terminal_context_relevant("ask", question)
+    assert terminal_context_relevant("ask", "explain this terminal output")
+    assert terminal_context_relevant("explain", question)
 
 
 def test_wrapped_json_is_validated_without_repair() -> None:
@@ -162,7 +215,8 @@ def test_missing_answer_uses_valid_command_explanation_without_repair() -> None:
         return httpx.Response(200, json={"message": {"content": content}})
 
     config = AppConfig(ollama=OllamaConfig(model="fixture-model"))
-    result = OllamaClient(config, httpx.MockTransport(handler)).chat(packet())
+    action_packet = packet().model_copy(update={"question": "give me a Nikto command"})
+    result = OllamaClient(config, httpx.MockTransport(handler)).chat(action_packet)
 
     assert result.answer == "Runs Nikto and writes text output to the requested file."
     assert result.proposed_command.startswith("nikto ")

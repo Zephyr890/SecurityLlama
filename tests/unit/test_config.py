@@ -36,3 +36,7 @@ def test_ui_hotkeys_must_be_distinct() -> None:
 
     with pytest.raises(ValidationError, match="must be distinct"):
         UIConfig(shell_hotkey="alt-a", insert_hotkey="alt-a")
+
+
+def test_cockpit_hotkey_avoids_zsh_push_line_default() -> None:
+    assert UIConfig().ask_hotkey == "alt-o"

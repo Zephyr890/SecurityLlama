@@ -22,6 +22,10 @@ operator action.
 - Workers for one logical session use a private owner-only queue lock and run in
   submission order. A queued request refreshes only bounded audited conversation
   turns; it does not reload or persist raw terminal or attachment context.
+- Clearly conceptual turns omit unrelated terminal capture and are locally
+  prohibited from returning an insertable command. This enforcement does not
+  rely on model compliance; explicit review, suggest, or command-building turns
+  continue through normal proposal policy assessment.
 - Raw attached-file input is not written directly to attachment state, audit
   records, conversation memory, or reports. Private runtime state contains only
   explicit file references tied to a logical session. Contents are freshly

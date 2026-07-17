@@ -48,9 +48,9 @@ def test_context_usage_exposes_budget_sources_without_raw_text() -> None:
     assert usage["truncated"] is True
 
 
-def test_cockpit_has_meta_q_and_control_g_close_bindings() -> None:
+def test_cockpit_has_meta_o_and_control_g_close_bindings() -> None:
     keys = {tuple(str(key) for key in binding.keys) for binding in COCKPIT_KEY_BINDINGS.bindings}
-    assert ("Keys.Escape", "q") in keys
+    assert ("Keys.Escape", "o") in keys
     assert ("Keys.ControlG",) in keys
 
 
@@ -165,6 +165,90 @@ def test_multiple_answers_render_as_ordered_question_answer_cards() -> None:
     assert positions == sorted(positions)
     assert "Request aaaaaaaa" in rendered
     assert "Answer bbbbbbbb" in rendered
+
+
+def test_cockpit_renders_proposed_command_only_once() -> None:
+    output = io.StringIO()
+    cockpit = Cockpit(
+        AppConfig(audit=AuditConfig(enabled=False)),
+        "%1",
+        console=Console(file=output, force_terminal=False, width=120),
+    )
+    now = datetime.now(UTC)
+    job = BackgroundJob(
+        job_id="c" * 32,
+        session_id="session",
+        pane_id="%1",
+        mode="suggest",
+        question="Suggest one inert check command",
+        model="fixture-model",
+        status="completed",
+        pid=123,
+        created_at=now,
+        finished_at=now,
+        response=AssistantResponse(
+            answer="Use this check.",
+            proposed_command="printf unique-proposal",
+            risk="low",
+        ),
+        assessment=PolicyAssessment(
+            scope_status="not_applicable",
+            risk_status="low",
+            explicit_targets=[],
+            blocked_reasons=[],
+            confirmation_required=False,
+            insertion_allowed=True,
+        ),
+        viewed_at=now,
+    )
+
+    cockpit._render_job(job)
+
+    assert output.getvalue().count("printf unique-proposal") == 1
+
+
+def test_cockpit_suppresses_legacy_conceptual_shell_proposal() -> None:
+    output = io.StringIO()
+    cockpit = Cockpit(
+        AppConfig(audit=AuditConfig(enabled=False)),
+        "%1",
+        console=Console(file=output, force_terminal=False, width=120),
+    )
+    now = datetime.now(UTC)
+    job = BackgroundJob(
+        job_id="d" * 32,
+        session_id="session",
+        pane_id="%1",
+        mode="ask",
+        question="explain the basics of web app fuzzing with burpsuite community",
+        model="fixture-model",
+        status="completed",
+        pid=123,
+        created_at=now,
+        finished_at=now,
+        response=AssistantResponse(
+            answer="Web fuzzing exercises application inputs.",
+            proposed_command="/usr/bin/zsh -l",
+            risk="unknown",
+            network_effect="active",
+        ),
+        assessment=PolicyAssessment(
+            scope_status="no_active_scope",
+            risk_status="unknown",
+            explicit_targets=[],
+            blocked_reasons=["network proposal requires an active engagement scope"],
+            confirmation_required=True,
+            insertion_allowed=False,
+        ),
+        viewed_at=now,
+    )
+
+    cockpit._render_job(job)
+
+    rendered = output.getvalue()
+    assert "Web fuzzing exercises" in rendered
+    assert "/usr/bin/zsh -l" not in rendered
+    assert not cockpit.state.proposals
 
 
 def test_cockpit_packet_keeps_session_attachment_and_omits_raw_persistence(tmp_path) -> None:

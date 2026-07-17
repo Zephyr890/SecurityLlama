@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shlex
 import shutil
 import sys
 from datetime import UTC, datetime
@@ -13,6 +14,8 @@ BEGIN = "# >>> securityllama managed block >>>"
 END = "# <<< securityllama managed block <<<"
 LEGACY_BEGIN = "# >>> kali-copilot managed block >>>"
 LEGACY_END = "# <<< kali-copilot managed block <<<"
+LEGACY_COCKPIT_HOTKEY = 'ask_hotkey = "alt-q"'
+DEFAULT_COCKPIT_HOTKEY = 'ask_hotkey = "alt-o"'
 
 
 def _asset_dir() -> Path:
@@ -22,38 +25,79 @@ def _asset_dir() -> Path:
     return Path(sys.prefix) / "share" / "securityllama" / "shell"
 
 
+def _installed_executable() -> str | None:
+    """Return a stable absolute path to the invoking SecurityLlama entry point."""
+    executable = shutil.which("securityllama")
+    sibling = Path(sys.executable).with_name("securityllama")
+    if executable is None and sibling.is_file():
+        executable = str(sibling)
+    if executable is None:
+        return None
+    return str(Path(executable).expanduser().resolve())
+
+
 def _render_asset(name: str, content: str, paths: AppPaths) -> str:
     """Apply validated UI bindings when shell assets are installed."""
-    from kali_copilot.config import ConfigError, load_config
+    from kali_copilot.config import ConfigError, UIConfig, load_config
 
     try:
         ui = load_config(paths).ui
     except ConfigError:
-        return content
+        ui = UIConfig()
     hotkeys = {
         "alt-a": ui.shell_hotkey,
         "alt-i": ui.insert_hotkey,
-        "alt-q": ui.ask_hotkey,
+        "alt-o": ui.ask_hotkey,
     }
+    executable = _installed_executable()
+    shell_executable = shlex.quote(executable) if executable is not None else "''"
     if name == "securityllama.zsh":
         for default, selected in hotkeys.items():
             content = content.replace(f"'^[{default[-1]}'", f"'^[{selected[-1]}'")
+        content = content.replace("@SECURITYLLAMA_EXECUTABLE@", shell_executable)
     elif name == "securityllama.bash":
         for default, selected in hotkeys.items():
             content = content.replace(f'"\\e{default[-1]}"', f'"\\e{selected[-1]}"')
+        content = content.replace("@SECURITYLLAMA_EXECUTABLE@", shell_executable)
     elif name == "securityllama.tmux.conf":
-        executable = shutil.which("securityllama")
-        sibling = Path(sys.executable).with_name("securityllama")
-        if executable is None and sibling.is_file():
-            executable = str(sibling)
         if executable is not None:
             escaped = executable.replace("\\", "\\\\").replace('"', '\\"')
-            content = content.replace("securityllama cockpit", f'"{escaped}" cockpit')
+            content = content.replace("@SECURITYLLAMA_EXECUTABLE@", f'"{escaped}"')
+        else:
+            content = content.replace("@SECURITYLLAMA_EXECUTABLE@", "securityllama")
         content = content.replace("bind-key A ", f"bind-key {ui.tmux_binding} ")
         content = content.replace(
             "-w 92% -h 85%", f"-w {ui.popup_width_percent}% -h {ui.popup_height_percent}%"
         )
     return content
+
+
+def _backup(path: Path) -> None:
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    shutil.copy2(path, path.with_name(f"{path.name}.securityllama-backup-{timestamp}"))
+
+
+def _migrate_legacy_cockpit_hotkey(paths: AppPaths) -> bool:
+    """Move the shipped Alt-Q default while preserving explicitly reformatted custom values."""
+    path = paths.config_file
+    if not path.exists():
+        return False
+    lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+    section = ""
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            section = stripped[1:-1]
+            continue
+        if section == "ui" and stripped == LEGACY_COCKPIT_HOTKEY:
+            _backup(path)
+            leading = line[: len(line) - len(line.lstrip())]
+            ending = "\n" if line.endswith("\n") else ""
+            lines[index] = f"{leading}{DEFAULT_COCKPIT_HOTKEY}{ending}"
+            path.write_text("".join(lines), encoding="utf-8")
+            path.chmod(0o600)
+            return True
+    return False
 
 
 def _replace_block(path: Path, body: str) -> bool:
@@ -74,8 +118,7 @@ def _replace_block(path: Path, body: str) -> bool:
     if updated == existing:
         return False
     if path.exists():
-        timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-        shutil.copy2(path, path.with_name(f"{path.name}.securityllama-backup-{timestamp}"))
+        _backup(path)
     path.write_text(updated, encoding="utf-8")
     return True
 
@@ -84,6 +127,7 @@ def install_shell(paths: AppPaths | None = None, home: Path | None = None) -> li
     """Install assets and one managed source block per supported config file."""
     resolved = paths or resolve_paths()
     user_home = home or Path.home()
+    _migrate_legacy_cockpit_hotkey(resolved)
     destination = resolved.config_dir / "shell"
     ensure_private_directory(resolved.config_dir)
     ensure_private_directory(destination)

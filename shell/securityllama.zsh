@@ -78,10 +78,11 @@ function _securityllama_insert_proposal() {
 
 function _securityllama_open_cockpit() {
   local saved_buffer="$BUFFER" saved_cursor="$CURSOR" securityllama_bin
-  securityllama_bin=${commands[securityllama]:-}
+  local securityllama_fallback=@SECURITYLLAMA_EXECUTABLE@
+  securityllama_bin=${commands[securityllama]:-$securityllama_fallback}
   if [[ -n ${TMUX:-} && -n ${TMUX_PANE:-} ]]; then
-    if [[ -z "$securityllama_bin" ]]; then
-      zle -M 'securityllama is not on PATH; reinstall with pipx and start a new shell'
+    if [[ -z "$securityllama_bin" || ! -x "$securityllama_bin" ]]; then
+      zle -M 'securityllama executable is unavailable; reinstall with pipx, then run securityllama install-shell'
     else
       tmux display-popup -EE -d "$PWD" -w 92% -h 85% -T ' SecurityLlama cockpit ' -- \
         "$securityllama_bin" cockpit --pane "$TMUX_PANE"
@@ -97,4 +98,4 @@ function _securityllama_open_cockpit() {
 zle -N securityllama-insert-proposal _securityllama_insert_proposal
 zle -N securityllama-open-cockpit _securityllama_open_cockpit
 bindkey '^[i' securityllama-insert-proposal
-bindkey '^[q' securityllama-open-cockpit
+bindkey '^[o' securityllama-open-cockpit

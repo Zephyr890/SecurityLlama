@@ -45,7 +45,12 @@ from kali_copilot.context import ContextCollector
 from kali_copilot.models import AssistantResponse, BackgroundJob, ContextPacket, PolicyAssessment
 from kali_copilot.ollama import OllamaClient
 from kali_copilot.paths import resolve_paths
-from kali_copilot.prompting import chat_messages
+from kali_copilot.policy import assess_proposal
+from kali_copilot.prompting import (
+    chat_messages,
+    enforce_request_contract_for,
+    terminal_context_relevant,
+)
 from kali_copilot.proposal import stage_proposal
 from kali_copilot.reporting import markdown_report
 from kali_copilot.sanitize import (
@@ -83,7 +88,7 @@ HELP = """Cockpit commands
   /clear                        clear the screen (does not erase audits)
   /quit, /q                     close the cockpit
 
-Alt-Q (or Esc then Q), Ctrl-G, and Ctrl-D at an empty prompt also close the
+Alt-O (or Esc then O), Ctrl-G, and Ctrl-D at an empty prompt also close the
 cockpit. Submitted requests continue in a detached process and appear when the
 cockpit is reopened, or render automatically if it remains open. The live
 prompt animates while requests are running. No command is executed by the
@@ -95,8 +100,8 @@ def cockpit_key_bindings() -> KeyBindings:
     """Return close bindings that do not submit or execute shell text."""
     bindings = KeyBindings()
 
-    @bindings.add("escape", "q")
-    def close_with_meta_q(event: KeyPressEvent) -> None:
+    @bindings.add("escape", "o")
+    def close_with_meta_o(event: KeyPressEvent) -> None:
         event.app.exit(result="/quit")
 
     @bindings.add("c-g")
@@ -224,6 +229,7 @@ class Cockpit:
         self.paths = resolve_paths()
         self._last_attachments = AttachmentBundle("", [], [], False, 0)
         self._last_terminal_chars = 0
+        self._terminal_auto_omitted = False
         self._loaded_job_ids: set[str] = set()
         self._running_jobs: dict[str, datetime] = {}
 
@@ -234,7 +240,11 @@ class Cockpit:
 
     def _packet(self, question: str) -> ContextPacket:
         safe_question = redact_secrets(strip_terminal_sequences(question))
-        if self.state.include_terminal:
+        use_terminal = self.state.include_terminal and terminal_context_relevant(
+            self.state.mode, safe_question.text
+        )
+        self._terminal_auto_omitted = self.state.include_terminal and not use_terminal
+        if use_terminal:
             packet = ContextCollector(self.config).collect_tmux(
                 self.state.pane_id, self.state.mode, safe_question.text
             )
@@ -303,6 +313,7 @@ class Cockpit:
             ("Reserved response", str(usage["reserved_response"])),
             ("Question", f"{usage['question_chars']} chars"),
             ("Terminal capture", f"{self._last_terminal_chars} chars"),
+            ("Terminal auto-omitted", str(self._terminal_auto_omitted).lower()),
             ("Attached files", str(len(self._last_attachments.attachments))),
             ("Attachment source", f"{self._last_attachments.original_bytes} bytes"),
             ("Attachment context", f"{len(self._last_attachments.text)} chars before total bound"),
@@ -328,7 +339,7 @@ class Cockpit:
             return
         self.console.print(
             Panel(
-                sanitize_for_display(item.response.proposed_command or ""),
+                Text(sanitize_for_display(item.response.proposed_command or "")),
                 title=(
                     f"Proposal {self.state.selected + 1}/{len(self.state.proposals)} · "
                     f"request {item.job_id[:8]} — NOT EXECUTED"
@@ -367,7 +378,7 @@ class Cockpit:
                 )
             self.console.print(
                 f"Request {job.job_id[:8]} was queued in the background. "
-                "Its answer will appear here automatically; close with Alt-Q and reopen later "
+                "Its answer will appear here automatically; close with Alt-O and reopen later "
                 "if you prefer to continue testing."
             )
             self._running_jobs[job.job_id] = job.created_at
@@ -413,6 +424,16 @@ class Cockpit:
                 f"Request {job.job_id[:8]} has an invalid empty result.", style="red"
             )
             return
+        response = enforce_request_contract_for(job.response, job.mode, job.question)
+        assessment = job.assessment
+        if response != job.response:
+            assessment = assess_proposal(response, active_scope(self.paths), self.config.policy)
+            job = job.model_copy(
+                update={
+                    "response": response,
+                    "assessment": assessment,
+                }
+            )
         if force or not already_loaded:
             completed_at = job.finished_at.isoformat() if job.finished_at else "completed"
             self.console.print()
@@ -424,12 +445,17 @@ class Cockpit:
                 )
             )
             self.console.print(f"Answer {job.job_id[:8]} · {completed_at}", style="bold cyan")
-            render_response(job.response, console=self.console)
-        if job.response.proposed_command and not already_loaded:
+            render_response(
+                response,
+                console=self.console,
+                show_proposal=False,
+                show_action_metadata=response.proposed_command is None,
+            )
+        if response.proposed_command and not already_loaded:
             self.state.proposals.append(
                 ProposalItem(
-                    job.response,
-                    job.assessment,
+                    response,
+                    assessment,
                     job.interaction_id,
                     job.pane_id,
                     job.job_id,

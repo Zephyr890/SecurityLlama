@@ -58,7 +58,7 @@ a restrictive scope template.
 
 At a zsh or Bash prompt, Alt-A reviews the exact editable command buffer. A
 validated proposal can be assigned to the prompt after confirmation; the
-operator must still press Enter. Prefix then A or Alt-Q opens the persistent,
+operator must still press Enter. Prefix then A or Alt-O opens the persistent,
 multi-turn tmux cockpit for the originating pane. The cockpit keeps assistant
 conversation separate from assessment commands and shell history.
 
@@ -119,18 +119,22 @@ Useful cockpit commands include:
 
 Reduced motion, monochrome output, completion bell, popup size, proposal lifetime,
 and all three shell shortcuts are configurable under `[ui]`. Rerun
-`securityllama install-shell` after changing bindings.
+`securityllama install-shell` after changing bindings. On upgrade, that command
+migrates the former shipped `ask_hotkey = "alt-q"` value to Alt-O and backs up
+the configuration before editing it.
 
-Installed tmux integration records the absolute SecurityLlama executable path
-so a tmux server started before `~/.local/bin` was added to `PATH` can still
-open the cockpit from every working directory. Failed cockpit commands remain
-visible in the popup instead of disappearing immediately. Alt-Q explicitly
-restores the current zsh/Bash editable buffer when the cockpit closes. If an
-older shell still reports `"^[q" push-line`, reload it with `exec "$SHELL" -l`;
-the SecurityLlama binding should report `securityllama-open-cockpit`.
+Installed shell and tmux integration record the absolute SecurityLlama
+executable path as a fallback, so a tmux server or shell started before
+`~/.local/bin` was added to `PATH` can still open the cockpit from every working
+directory. Failed cockpit commands remain visible in the popup instead of
+disappearing immediately. Alt-O explicitly
+restores the current zsh/Bash editable buffer when the cockpit closes without
+overriding zsh's Alt-Q `push-line` shortcut. If an older shell still reports a
+SecurityLlama binding for `"^[q"`, reload it with `exec "$SHELL" -l`;
+`bindkey '^[o'` should report `securityllama-open-cockpit`.
 
-At an idle cockpit prompt, Alt-Q toggles the cockpit closed; terminals that do
-not map Option to Meta can use Esc then Q, Ctrl-G, `/quit`, `/q`, or Ctrl-D on an
+At an idle cockpit prompt, Alt-O toggles the cockpit closed; terminals that do
+not map Option to Meta can use Esc then O, Ctrl-G, `/quit`, `/q`, or Ctrl-D on an
 empty prompt. Submitting a question captures and redacts its bounded context,
 starts a detached request, and immediately returns to the cockpit prompt. Close
 the popup and continue testing; the request continues without access to the
@@ -151,6 +155,14 @@ starts, SecurityLlama refreshes its bounded conversation memory with completed
 earlier turns when auditing and memory inclusion are enabled. Each result is
 rendered as a question/answer card carrying the same short request ID, and any
 proposal retains that request identity and its originating pane.
+
+Clearly conceptual questions—such as “explain the basics of web app fuzzing”—
+automatically omit unrelated terminal capture so small local models are not
+distracted by shell metadata. `/context` reports this as `Terminal auto-omitted`.
+Conceptual turns cannot publish or stage a command: even if the model returns
+one, SecurityLlama removes it and its action metadata locally. Actionable
+requests made through review/suggest mode or explicit command language retain
+normal proposal behavior. The cockpit renders an eligible proposal exactly once.
 
 Raw terminal and attachment context crosses to the detached worker through an
 anonymous pipe and is not written to background job state. Private `0600`

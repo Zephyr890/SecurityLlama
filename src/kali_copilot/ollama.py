@@ -15,6 +15,7 @@ from kali_copilot.prompting import (
     RESPONSE_FORMAT_SCHEMA,
     chat_messages,
     context_echo_repair_messages,
+    enforce_request_contract,
 )
 from kali_copilot.sanitize import redact_secrets, sanitize_for_display
 
@@ -212,7 +213,7 @@ class OllamaClient:
         messages = chat_messages(packet)
         initial = self._post_chat(messages)
         try:
-            return _validated_response(initial.content)
+            return enforce_request_contract(_validated_response(initial.content), packet)
         except (ValidationError, ValueError) as first_error:
             validation_summary = _response_error_summary(first_error)
             if _looks_like_context_echo(initial.content):
@@ -234,7 +235,7 @@ class OllamaClient:
                 ]
             repaired = self._post_chat(repair, minimum_num_predict=512)
             try:
-                return _validated_response(repaired.content)
+                return enforce_request_contract(_validated_response(repaired.content), packet)
             except (ValidationError, ValueError) as exc:
                 raise InvalidModelResponseError(
                     "model returned invalid structured JSON after one repair: "

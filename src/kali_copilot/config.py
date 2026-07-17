@@ -80,7 +80,7 @@ class UIConfig(StrictModel):
     shell_hotkey: str = "alt-a"
     tmux_binding: str = "A"
     insert_hotkey: str = "alt-i"
-    ask_hotkey: str = "alt-q"
+    ask_hotkey: str = "alt-o"
     proposal_ttl_seconds: int = Field(300, ge=15, le=3600)
     reduced_motion: bool = False
     monochrome: bool = False

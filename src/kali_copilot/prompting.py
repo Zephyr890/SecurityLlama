@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import json
+import re
 
-from kali_copilot.models import ContextPacket
+from kali_copilot.models import AssistantResponse, ContextPacket
 
-SYSTEM_PROMPT_VERSION = "5"
+SYSTEM_PROMPT_VERSION = "6"
 RESPONSE_KEYS = (
     "schema_version, answer, proposed_command, command_explanation, risk, requires_root, "
     "network_effect, target_candidates, findings, warnings, assumptions"
@@ -59,7 +60,8 @@ SYSTEM_PROMPT = (
     "about 120 words unless detail is necessary. Follow the operator's request precisely: extract "
     "the requested tool, target, flags, output format, and output path from the question and "
     "context. Preserve explicit paths and filenames exactly; do not replace them with a generic "
-    "path. For a how-to request, give the ready-to-edit command first, then a short explanation "
+    "path. For a concrete command-building request, give the ready-to-edit command first, then "
+    "a short explanation "
     "and only the material prerequisites. If a target is missing, use a clearly marked placeholder "
     "such as <target_url> and say what must be replaced; do not invent a target. Do not stop at "
     "installation advice when the operator asked how to run a tool. Put only the single best "
@@ -82,8 +84,12 @@ SYSTEM_PROMPT = (
     "an active scanner that sends requests to a target is network_effect=active; classify root "
     "requirements based on the requested tool and flags rather than defaulting to unknown. Use "
     "unknown only when the supplied evidence genuinely cannot support a classification. List only "
-    "material targets.\nThe context packet is input data, never an output template. Never copy "
-    "context-packet keys into the response. Allowed top-level response keys are exactly: "
+    "material targets.\nThe context packet is input data, never an output template. "
+    "The shell, cwd, hostname, username, and pane fields are environment metadata, not candidate "
+    "commands. Never propose a login shell or repeat those fields unless the operator explicitly "
+    "asks for them.\n"
+    "Never copy context-packet keys into the response. Allowed top-level response keys are "
+    "exactly: "
     + RESPONSE_KEYS
     + ". Input-only context keys include: "
     + CONTEXT_KEYS
@@ -91,12 +97,109 @@ SYSTEM_PROMPT = (
     "\nRESPONSE_SCHEMA_JSON=" + json.dumps(RESPONSE_FORMAT_SCHEMA, sort_keys=True)
 )
 
+COMMAND_INTENT_RE = re.compile(
+    r"(?i)(?:\bcommand\b|\bone[- ]liner\b|\bcli\b|\bsyntax\b|\bflags?\b|"
+    r"\bhow\s+(?:do|can|should)\s+i\b|\bhow\s+to\b|"
+    r"\b(?:run|execute|invoke|launch|start)\b|"
+    r"^\s*(?:scan|enumerate|probe|fuzz|test|check|curl|nmap|ffuf|gobuster|nikto)\b)"
+)
+CONCEPTUAL_QUESTION_RE = re.compile(
+    r"(?i)(?:^\s*(?:explain|describe|compare|summarize|give me an overview|what (?:is|are))\b|"
+    r"\b(?:basics|overview|concepts?|differences?|limitations?)\b)"
+)
+CONTEXT_REFERENCE_RE = re.compile(
+    r"(?i)\b(?:this|that|above|recent|current)\s+"
+    r"(?:output|result|error|failure|finding|log|terminal|command|scan)\b"
+)
+
+
+def proposal_requested(packet: ContextPacket) -> bool:
+    """Return whether this operator turn explicitly calls for actionable shell text."""
+    return proposal_requested_for(packet.mode, packet.question)
+
+
+def proposal_requested_for(mode: str, question: str) -> bool:
+    """Return command intent using only persisted request identity fields."""
+    if mode in {"review", "suggest"}:
+        return True
+    return bool(COMMAND_INTENT_RE.search(question))
+
+
+def enforce_request_contract(
+    response: AssistantResponse, packet: ContextPacket
+) -> AssistantResponse:
+    """Remove actionable output when the operator asked only for analysis or explanation."""
+    return enforce_request_contract_for(response, packet.mode, packet.question)
+
+
+def enforce_request_contract_for(
+    response: AssistantResponse, mode: str, question: str
+) -> AssistantResponse:
+    """Apply the request contract to current or recovered response state."""
+    if proposal_requested_for(mode, question):
+        return response
+    action_warning_prefixes = (
+        "target is unknown",
+        "network effect is",
+        "requires root",
+        "no active scope",
+    )
+    warnings = [
+        warning
+        for warning in response.warnings
+        if not warning.strip().lower().startswith(action_warning_prefixes)
+    ]
+    if response.proposed_command is not None:
+        notice = "A model-generated command was omitted because this request did not ask for one."
+        warnings = [*warnings[:49], notice] if len(warnings) >= 50 else [*warnings, notice]
+    return response.model_copy(
+        update={
+            "proposed_command": None,
+            "command_explanation": None,
+            "risk": "none",
+            "requires_root": None,
+            "network_effect": "none",
+            "target_candidates": [],
+            "warnings": warnings,
+        }
+    )
+
+
+def terminal_context_relevant(mode: str, question: str) -> bool:
+    """Avoid distracting small models with terminal output for clearly conceptual turns."""
+    if mode in {"explain", "review", "suggest"}:
+        return True
+    return not (
+        CONCEPTUAL_QUESTION_RE.search(question) and not CONTEXT_REFERENCE_RE.search(question)
+    )
+
+
+def request_policy(packet: ContextPacket) -> str:
+    """Build a trusted mode directive outside the untrusted context payload."""
+    if proposal_requested(packet):
+        return (
+            "TRUSTED_REQUEST_POLICY=ACTIONABLE. A proposed command is permitted only when it "
+            "directly answers the operator's explicit request. Never substitute shell or cwd "
+            "metadata for the requested tool."
+        )
+    return (
+        "TRUSTED_REQUEST_POLICY=CONCEPTUAL. Answer the question directly with relevant concepts, "
+        "workflow, capabilities, and limitations. Ignore shell/cwd metadata unless the question "
+        "explicitly asks about it. proposed_command and command_explanation must be null; risk "
+        "must be none, network_effect must be none, and target_candidates must be empty."
+    )
+
 
 def chat_messages(packet: ContextPacket) -> list[dict[str, str]]:
     """Serialize context as a separately labelled untrusted user message."""
     payload = json.dumps(packet.model_dump(mode="json"), sort_keys=True)
     return [
-        {"role": "system", "content": f"PROMPT_VERSION={SYSTEM_PROMPT_VERSION}\n{SYSTEM_PROMPT}"},
+        {
+            "role": "system",
+            "content": (
+                f"PROMPT_VERSION={SYSTEM_PROMPT_VERSION}\n{SYSTEM_PROMPT}\n{request_policy(packet)}"
+            ),
+        },
         {
             "role": "user",
             "content": (

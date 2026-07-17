@@ -26,7 +26,13 @@ def render_command_diff(before: str, after: str, *, console: Console | None = No
         output.print(line, style=style, markup=False)
 
 
-def render_response(response: AssistantResponse, *, console: Console | None = None) -> None:
+def render_response(
+    response: AssistantResponse,
+    *,
+    console: Console | None = None,
+    show_proposal: bool = True,
+    show_action_metadata: bool = True,
+) -> None:
     """Render validated response fields without interpreting command markup."""
     output = console or Console()
     output.print(sanitize_for_display(response.answer), markup=False)
@@ -42,14 +48,20 @@ def render_response(response: AssistantResponse, *, console: Console | None = No
         output.print("\nWarnings", style="bold yellow")
         for warning in response.warnings:
             output.print(f"  - {sanitize_for_display(warning)}", style="yellow", markup=False)
-    if response.proposed_command is not None:
+    if show_proposal and response.proposed_command is not None:
         command = Text(
             sanitize_for_display(response.proposed_command), overflow="fold", no_wrap=False
         )
         output.print(Panel(command, title="PROPOSED COMMAND — NOT EXECUTED", border_style="cyan"))
         if response.command_explanation:
             output.print(sanitize_for_display(response.command_explanation), markup=False)
-    output.print(
-        f"Risk: {response.risk} | Network effect: {response.network_effect} | "
-        f"Requires root: {response.requires_root}"
+    meaningful_metadata = (
+        response.risk != "none"
+        or response.network_effect != "none"
+        or response.requires_root is not None
     )
+    if show_action_metadata and meaningful_metadata:
+        output.print(
+            f"Risk: {response.risk} | Network effect: {response.network_effect} | "
+            f"Requires root: {response.requires_root}"
+        )

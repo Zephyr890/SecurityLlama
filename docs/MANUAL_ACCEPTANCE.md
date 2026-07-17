@@ -13,17 +13,22 @@ until run in the project's VirtualBox Kali VM.
    `grep -c '>>> securityllama managed block >>>' ~/.zshrc ~/.bashrc` reports one
    block per file.
 3. Start a login zsh and `tmux new -s assessment`; run `securityllama doctor`.
-   Type inert text at the prompt, press Alt-Q, close the cockpit, and verify the
-   editable text and cursor position are unchanged. Run `bindkey '^[q'` and
-   verify it reports `securityllama-open-cockpit`, not zsh's `push-line`.
-   Reopen the cockpit and verify Alt-Q closes it from the idle cockpit prompt.
-   Repeat with Esc then Q, Ctrl-G, `/q`, `/quit`, and Ctrl-D on an empty prompt.
+   Type inert text at the prompt, press Alt-O, close the cockpit, and verify the
+   editable text and cursor position are unchanged. Run `bindkey '^[o'` and
+   verify it reports `securityllama-open-cockpit`; run `bindkey '^[q'` and verify
+   zsh's `push-line` remains intact. Reopen the cockpit and verify Alt-O closes
+   it from the idle cockpit prompt. Repeat with Esc then O, Ctrl-G, `/q`,
+   `/quit`, and Ctrl-D on an empty prompt.
    Submit a model request and verify the cockpit prompt returns immediately.
    Leave the cockpit open once and verify its prompt animates with elapsed time,
    remains editable, and renders the completed answer without `/last`.
    Submit two questions quickly. Verify the second reports `queued`, results
    appear in submission order as separate cards containing the matching question
    and request ID, and proposals remain associated with the correct card.
+   Ask `explain the basics of web app fuzzing with burpsuite community` in ask
+   mode. Verify `/context` reports terminal auto-omission, the answer discusses
+   concepts and Community Edition limitations, and no shell command, action-risk
+   metadata, or duplicate proposal panel is displayed.
    Close the popup, continue using the originating shell, wait for generation,
    and reopen the cockpit. Verify the unseen answer appears, `/jobs` reports it
    completed, `/last` redisplays it, and no command was typed or executed.
@@ -57,7 +62,9 @@ until run in the project's VirtualBox Kali VM.
     new session has no attachments. Also verify symlinks and NUL-containing
     binary files are rejected.
 12. Enable reduced motion and monochrome output, reinstall shell integration,
-    and confirm the selected settings and custom bindings work.
+    and confirm the selected settings and custom bindings work. On an upgrade
+    from the former default, confirm `config.toml.securityllama-backup-*` exists
+    and `ask_hotkey` changed from `alt-q` to `alt-o`.
 13. Temporarily make the installed cockpit command fail, invoke Prefix then A,
     and verify the popup remains visible with the error. Restore the command,
     reinstall shell integration, reload `~/.tmux.conf`, and verify the cockpit
