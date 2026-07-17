@@ -64,7 +64,7 @@ def test_start_job_keeps_raw_context_in_anonymous_pipe(monkeypatch, tmp_path: Pa
     record = (paths.jobs_dir / f"{job.job_id}.json").read_text()
     assert "sensitive synthetic terminal evidence" not in record
     assert "sensitive synthetic terminal evidence" in process.stdin.getvalue().decode()
-    assert job.status == "running"
+    assert job.status == "queued"
     assert (paths.jobs_dir / f"{job.job_id}.json").stat().st_mode & 0o077 == 0
 
 

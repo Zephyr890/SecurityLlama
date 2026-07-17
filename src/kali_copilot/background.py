@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import fcntl
+import hashlib
 import json
 import os
 import stat
 import subprocess
 import sys
 import tempfile
+import time
 import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from time import monotonic
@@ -129,12 +134,19 @@ def mark_viewed(job: BackgroundJob, paths: AppPaths | None = None) -> Background
     return viewed
 
 
-def _payload(config: AppConfig, packet: ContextPacket, scope: ScopeConfig | None) -> bytes:
+def _payload(
+    config: AppConfig,
+    packet: ContextPacket,
+    scope: ScopeConfig | None,
+    *,
+    refresh_memory: bool,
+) -> bytes:
     content = json.dumps(
         {
             "config": config.model_dump(mode="json"),
             "packet": packet.model_dump(mode="json"),
             "scope": scope.model_dump(mode="json") if scope else None,
+            "refresh_memory": refresh_memory,
         },
         separators=(",", ":"),
     ).encode()
@@ -149,6 +161,7 @@ def start_job(
     scope: ScopeConfig | None,
     *,
     pane_id: str,
+    refresh_memory: bool = False,
     paths: AppPaths | None = None,
 ) -> BackgroundJob:
     """Start a detached worker; raw context crosses an anonymous pipe, never a job file."""
@@ -179,13 +192,13 @@ def start_job(
         mode=packet.mode,
         question=packet.question,
         model=config.ollama.model,
-        status="running",
+        status="queued",
         pid=process.pid,
         created_at=datetime.now(UTC),
     )
     try:
         _write_job(job, resolved)
-        payload = _payload(config, packet, scope)
+        payload = _payload(config, packet, scope, refresh_memory=refresh_memory)
         if process.stdin is None:
             raise BackgroundJobError("background request pipe was not created")
         process.stdin.write(payload)
@@ -206,6 +219,67 @@ def start_job(
     return job
 
 
+def _process_alive(pid: int | None) -> bool:
+    if pid is None:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+@contextmanager
+def _queue_turn(job: BackgroundJob, paths: AppPaths) -> Iterator[None]:
+    """Serialize requests by submission order while retaining a cross-process lock."""
+    ensure_private_directory(paths.jobs_dir)
+    session_key = hashlib.sha256(job.session_id.encode()).hexdigest()[:32]
+    lock_path = paths.jobs_dir / f"queue-{session_key}.lock"
+    flags = os.O_RDWR | os.O_CREAT
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    descriptor = os.open(lock_path, flags, 0o600)
+    try:
+        info = os.fstat(descriptor)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid():
+            raise BackgroundJobError("background queue lock must be a regular file owned by you")
+        os.fchmod(descriptor, 0o600)
+        while True:
+            fcntl.flock(descriptor, fcntl.LOCK_EX)
+            current_key = (job.created_at, job.job_id)
+            blockers: list[BackgroundJob] = []
+            for candidate in list_jobs(job.session_id, paths):
+                if (candidate.created_at, candidate.job_id) >= current_key:
+                    continue
+                if candidate.status not in {"queued", "running"}:
+                    continue
+                if not _process_alive(candidate.pid):
+                    _write_job(
+                        candidate.model_copy(
+                            update={
+                                "status": "failed",
+                                "finished_at": datetime.now(UTC),
+                                "error": "Background worker exited before publishing a result.",
+                            }
+                        ),
+                        paths,
+                    )
+                    continue
+                blockers.append(candidate)
+            if not blockers:
+                break
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+            time.sleep(0.05)
+        try:
+            yield
+        finally:
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+    finally:
+        os.close(descriptor)
+
+
 def run_job(job_id: str, raw_payload: bytes, paths: AppPaths | None = None) -> None:
     """Run one request and publish only sanitized model output and metadata."""
     resolved = paths or resolve_paths()
@@ -221,38 +295,52 @@ def run_job(job_id: str, raw_payload: bytes, paths: AppPaths | None = None) -> N
         scope = ScopeConfig.model_validate(scope_value) if scope_value is not None else None
         if packet.session_id != job.session_id or packet.question != job.question:
             raise BackgroundJobError("background request does not match its job record")
-        response = _safe_response(OllamaClient(config).chat(packet))
-        assessment = assess_proposal(response, scope, config.policy)
-        interaction_id = None
-        audit_warning = None
-        if config.audit.enabled:
-            try:
+        with _queue_turn(job, resolved):
+            job = load_job(job_id, resolved).model_copy(update={"status": "running"})
+            _write_job(job, resolved)
+            if bool(value.get("refresh_memory")) and config.audit.enabled:
                 with AuditStore(resolved.database_file) as store:
-                    interaction_id = store.record(
-                        packet,
-                        response,
-                        assessment,
-                        endpoint_host=urlsplit(config.ollama.base_url).hostname or "unknown",
-                        model=config.ollama.model,
-                        duration_ms=round((monotonic() - started) * 1000),
+                    packet = packet.model_copy(
+                        update={
+                            "recent_turns": store.recent_turns(
+                                packet.session_id, config.context.recent_turns
+                            )
+                        }
                     )
-            except Exception as exc:  # noqa: BLE001 - preserve answer if optional audit fails
-                audit_warning = "Answer completed, but the local audit record failed: " + str(exc)
-        completed = job.model_copy(
-            update={
-                "status": "completed",
-                "finished_at": datetime.now(UTC),
-                "response": response,
-                "assessment": assessment,
-                "interaction_id": interaction_id,
-                "error": (
-                    redact_secrets(strip_terminal_sequences(audit_warning)).text[:2000]
-                    if audit_warning
-                    else None
-                ),
-            }
-        )
-        _write_job(completed, resolved)
+            response = _safe_response(OllamaClient(config).chat(packet))
+            assessment = assess_proposal(response, scope, config.policy)
+            interaction_id = None
+            audit_warning = None
+            if config.audit.enabled:
+                try:
+                    with AuditStore(resolved.database_file) as store:
+                        interaction_id = store.record(
+                            packet,
+                            response,
+                            assessment,
+                            endpoint_host=urlsplit(config.ollama.base_url).hostname or "unknown",
+                            model=config.ollama.model,
+                            duration_ms=round((monotonic() - started) * 1000),
+                        )
+                except Exception as exc:  # noqa: BLE001 - preserve answer if optional audit fails
+                    audit_warning = "Answer completed, but the local audit record failed: " + str(
+                        exc
+                    )
+            completed = job.model_copy(
+                update={
+                    "status": "completed",
+                    "finished_at": datetime.now(UTC),
+                    "response": response,
+                    "assessment": assessment,
+                    "interaction_id": interaction_id,
+                    "error": (
+                        redact_secrets(strip_terminal_sequences(audit_warning)).text[:2000]
+                        if audit_warning
+                        else None
+                    ),
+                }
+            )
+            _write_job(completed, resolved)
     except Exception as exc:  # noqa: BLE001 - detached worker must publish a bounded failure
         failed = job.model_copy(
             update={

@@ -144,6 +144,14 @@ elapsed time. Completed answers render automatically above the editable prompt;
 the operator can keep typing while generation runs. Reduced-motion mode uses a
 static working indicator instead of animated frames.
 
+Questions submitted to one logical session are processed in submission order.
+Additional questions show as `queued` while the current request runs, preventing
+later answers from overtaking earlier ones. Immediately before a queued request
+starts, SecurityLlama refreshes its bounded conversation memory with completed
+earlier turns when auditing and memory inclusion are enabled. Each result is
+rendered as a question/answer card carrying the same short request ID, and any
+proposal retains that request identity and its originating pane.
+
 Raw terminal and attachment context crosses to the detached worker through an
 anonymous pipe and is not written to background job state. Private `0600`
 runtime state contains the submitted question, status, sanitized validated

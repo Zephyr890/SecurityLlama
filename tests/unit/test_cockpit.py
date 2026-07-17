@@ -115,6 +115,58 @@ def test_cockpit_monitor_renders_completed_job_without_reopen(monkeypatch) -> No
     assert rendered == [completed.job_id]
 
 
+def test_multiple_answers_render_as_ordered_question_answer_cards() -> None:
+    output = io.StringIO()
+    cockpit = Cockpit(
+        AppConfig(audit=AuditConfig(enabled=False)),
+        "%1",
+        console=Console(file=output, force_terminal=False, width=120),
+    )
+    assessment = PolicyAssessment(
+        scope_status="not_applicable",
+        risk_status="none",
+        explicit_targets=[],
+        blocked_reasons=["no proposed command"],
+        confirmation_required=False,
+        insertion_allowed=False,
+    )
+
+    def completed(job_id: str, question: str, answer: str) -> BackgroundJob:
+        now = datetime.now(UTC)
+        return BackgroundJob(
+            job_id=job_id * 32,
+            session_id="ordered-session",
+            pane_id="%1",
+            mode="ask",
+            question=question,
+            model="fixture-model",
+            status="completed",
+            pid=123,
+            created_at=now,
+            finished_at=now,
+            response=AssistantResponse(answer=answer),
+            assessment=assessment,
+            viewed_at=now,
+        )
+
+    cockpit._render_job(completed("a", "FIRST_UNIQUE_QUESTION", "FIRST_UNIQUE_ANSWER"))
+    cockpit._render_job(completed("b", "SECOND_UNIQUE_QUESTION", "SECOND_UNIQUE_ANSWER"))
+
+    rendered = output.getvalue()
+    positions = [
+        rendered.index(marker)
+        for marker in (
+            "FIRST_UNIQUE_QUESTION",
+            "FIRST_UNIQUE_ANSWER",
+            "SECOND_UNIQUE_QUESTION",
+            "SECOND_UNIQUE_ANSWER",
+        )
+    ]
+    assert positions == sorted(positions)
+    assert "Request aaaaaaaa" in rendered
+    assert "Answer bbbbbbbb" in rendered
+
+
 def test_cockpit_packet_keeps_session_attachment_and_omits_raw_persistence(tmp_path) -> None:
     app_paths = AppPaths(
         tmp_path / "config", tmp_path / "data", tmp_path / "cache", tmp_path / "runtime"

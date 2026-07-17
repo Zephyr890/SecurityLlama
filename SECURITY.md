@@ -19,6 +19,9 @@ operator action.
   anonymous pipe. Private runtime job state contains the explicit question,
   status, and sanitized validated response, but never captured terminal or
   attached-file input. Workers have no shell-input or command-execution path.
+- Workers for one logical session use a private owner-only queue lock and run in
+  submission order. A queued request refreshes only bounded audited conversation
+  turns; it does not reload or persist raw terminal or attachment context.
 - Raw attached-file input is not written directly to attachment state, audit
   records, conversation memory, or reports. Private runtime state contains only
   explicit file references tied to a logical session. Contents are freshly

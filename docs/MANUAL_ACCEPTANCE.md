@@ -21,6 +21,9 @@ until run in the project's VirtualBox Kali VM.
    Submit a model request and verify the cockpit prompt returns immediately.
    Leave the cockpit open once and verify its prompt animates with elapsed time,
    remains editable, and renders the completed answer without `/last`.
+   Submit two questions quickly. Verify the second reports `queued`, results
+   appear in submission order as separate cards containing the matching question
+   and request ID, and proposals remain associated with the correct card.
    Close the popup, continue using the originating shell, wait for generation,
    and reopen the cockpit. Verify the unseen answer appears, `/jobs` reports it
    completed, `/last` redisplays it, and no command was typed or executed.

@@ -113,7 +113,7 @@ class BackgroundJob(BoundaryModel):
     mode: Literal["ask", "explain", "review", "suggest"]
     question: str = Field(min_length=1, max_length=20000)
     model: str = Field(min_length=1, max_length=255)
-    status: Literal["starting", "running", "completed", "failed"]
+    status: Literal["queued", "running", "completed", "failed"]
     pid: int | None = Field(default=None, ge=1)
     created_at: datetime
     finished_at: datetime | None = None

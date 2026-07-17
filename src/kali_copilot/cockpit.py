@@ -21,6 +21,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.status import Status
 from rich.table import Table
+from rich.text import Text
 
 from kali_copilot.attachments import (
     AttachmentBundle,
@@ -114,6 +115,8 @@ class ProposalItem:
     assessment: PolicyAssessment
     interaction_id: str | None
     pane_id: str
+    job_id: str
+    question: str
 
 
 @dataclass
@@ -290,12 +293,6 @@ class Cockpit:
             subtitle += f" · {len(attachments)} attached"
         self.console.print(Panel(subtitle, title=title, border_style="cyan"))
         self.console.print("Type a question or /help. Proposals are never executed.", style="dim")
-        if self.config.audit.enabled:
-            with AuditStore(self.paths.database_file) as store:
-                turns = store.recent_turns(session, min(3, self.config.context.recent_turns))
-            for turn in turns:
-                self.console.print(f"\nYou: {sanitize_for_display(turn.question)}", style="bold")
-                self.console.print(sanitize_for_display(turn.answer))
 
     def _show_context(self, packet: ContextPacket) -> None:
         usage = context_usage(packet, self.config)
@@ -333,7 +330,8 @@ class Cockpit:
             Panel(
                 sanitize_for_display(item.response.proposed_command or ""),
                 title=(
-                    f"Proposal {self.state.selected + 1}/{len(self.state.proposals)} — NOT EXECUTED"
+                    f"Proposal {self.state.selected + 1}/{len(self.state.proposals)} · "
+                    f"request {item.job_id[:8]} — NOT EXECUTED"
                 ),
                 border_style="cyan",
             )
@@ -364,10 +362,11 @@ class Cockpit:
                     packet,
                     active_scope(self.paths),
                     pane_id=self.state.pane_id,
+                    refresh_memory=self.state.include_memory,
                     paths=self.paths,
                 )
             self.console.print(
-                f"Request {job.job_id[:8]} is running in the background. "
+                f"Request {job.job_id[:8]} was queued in the background. "
                 "Its answer will appear here automatically; close with Alt-Q and reopen later "
                 "if you prefer to continue testing."
             )
@@ -384,12 +383,23 @@ class Cockpit:
             self.console.print(f"Attachment error: {sanitize_for_display(str(exc))}", style="red")
 
     def _render_job(self, job: BackgroundJob, *, force: bool = False) -> None:
-        if job.status in {"starting", "running"}:
+        if job.status in {"queued", "running"}:
             self.console.print(
-                f"Request {job.job_id[:8]} is still running with {sanitize_for_display(job.model)}."
+                f"Request {job.job_id[:8]} is {job.status} with "
+                f"{sanitize_for_display(job.model)}: {sanitize_for_display(job.question)}",
+                markup=False,
             )
             return
+        already_loaded = job.job_id in self._loaded_job_ids
+        self._loaded_job_ids.add(job.job_id)
         if job.status == "failed":
+            self.console.print(
+                Panel(
+                    Text(sanitize_for_display(job.question)),
+                    title=f"Request {job.job_id[:8]} · You",
+                    border_style="blue",
+                )
+            )
             self.console.print(
                 f"Request {job.job_id[:8]} failed: "
                 f"{sanitize_for_display(job.error or 'unknown background error')}",
@@ -403,21 +413,31 @@ class Cockpit:
                 f"Request {job.job_id[:8]} has an invalid empty result.", style="red"
             )
             return
-        already_loaded = job.job_id in self._loaded_job_ids
         if force or not already_loaded:
             completed_at = job.finished_at.isoformat() if job.finished_at else "completed"
+            self.console.print()
             self.console.print(
-                f"\nBackground answer {job.job_id[:8]} · {completed_at}",
-                style="bold cyan",
+                Panel(
+                    Text(sanitize_for_display(job.question)),
+                    title=f"Request {job.job_id[:8]} · You",
+                    border_style="blue",
+                )
             )
+            self.console.print(f"Answer {job.job_id[:8]} · {completed_at}", style="bold cyan")
             render_response(job.response, console=self.console)
         if job.response.proposed_command and not already_loaded:
             self.state.proposals.append(
-                ProposalItem(job.response, job.assessment, job.interaction_id, job.pane_id)
+                ProposalItem(
+                    job.response,
+                    job.assessment,
+                    job.interaction_id,
+                    job.pane_id,
+                    job.job_id,
+                    job.question,
+                )
             )
             self.state.selected = len(self.state.proposals) - 1
             self._show_proposal()
-        self._loaded_job_ids.add(job.job_id)
         if job.error:
             self.console.print(sanitize_for_display(job.error), style="yellow")
         if job.viewed_at is None:
@@ -430,13 +450,17 @@ class Cockpit:
         session_id = current_session(self.paths).session_id
         jobs = list_jobs(session_id, self.paths)
         self._running_jobs = {
-            job.job_id: job.created_at for job in jobs if job.status in {"starting", "running"}
+            job.job_id: job.created_at for job in jobs if job.status in {"queued", "running"}
         }
-        unseen = [job for job in reversed(jobs) if job.viewed_at is None]
-        for job in unseen:
+        terminal = [job for job in jobs if job.status in {"completed", "failed"}]
+        recent_ids = {job.job_id for job in terminal[:3]}
+        to_show = [
+            job for job in reversed(terminal) if job.viewed_at is None or job.job_id in recent_ids
+        ]
+        for job in to_show:
             self._render_job(job)
-        running = sum(job.status in {"starting", "running"} for job in jobs)
-        if running and not unseen:
+        running = sum(job.status in {"queued", "running"} for job in jobs)
+        if running and not to_show:
             self.console.print(
                 f"{running} background request(s) still running. Use /last to refresh.", style="dim"
             )
@@ -461,7 +485,7 @@ class Cockpit:
             await asyncio.sleep(0.2)
             jobs = list_jobs(current_session(self.paths).session_id, self.paths)
             self._running_jobs = {
-                job.job_id: job.created_at for job in jobs if job.status in {"starting", "running"}
+                job.job_id: job.created_at for job in jobs if job.status in {"queued", "running"}
             }
             ready = [
                 job
@@ -487,13 +511,15 @@ class Cockpit:
         table.add_column("Status")
         table.add_column("Mode")
         table.add_column("Model")
+        table.add_column("Question")
         table.add_column("Submitted")
         for job in jobs[:20]:
             table.add_row(
                 job.job_id[:8],
                 job.status,
                 job.mode,
-                sanitize_for_display(job.model),
+                Text(sanitize_for_display(job.model)),
+                Text(sanitize_for_display(job.question)[:60]),
                 job.created_at.isoformat(),
             )
         self.console.print(table)
@@ -609,7 +635,7 @@ class Cockpit:
                 "Background requests: "
                 + ", ".join(
                     f"{status}={sum(job.status == status for job in jobs)}"
-                    for status in ("running", "completed", "failed")
+                    for status in ("queued", "running", "completed", "failed")
                 )
             )
         elif command == "/jobs":
@@ -652,7 +678,9 @@ class Cockpit:
                 self.console.print("Proposal marked rejected.")
         elif command == "/alternative":
             instruction = " ".join(args) or "Provide a lower-impact alternative."
-            self._ask(f"{self.state.last_question}\n\n{instruction}".strip())
+            selected = self._selected()
+            source_question = selected.question if selected else self.state.last_question
+            self._ask(f"{source_question}\n\n{instruction}".strip())
         elif command in {"/note", "/bookmark"} and args:
             safe_note = redact_secrets(strip_terminal_sequences(" ".join(args))).text
             with AuditStore(self.paths.database_file) as store:
