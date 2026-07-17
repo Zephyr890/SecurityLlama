@@ -45,7 +45,14 @@ _securityllama_widget() {
     tmux display-popup -EE -d "$PWD" -w 92% -h 85% -- \
       "$securityllama_bin" shell-widget --request-file "$request_file" --response-file "$response_file"
   else
-    "$securityllama_bin" shell-widget --request-file "$request_file" --response-file "$response_file"
+    if [[ ! -r /dev/tty || ! -w /dev/tty ]]; then
+      rm -rf -- "$work_dir"
+      printf '%s\n' 'securityllama cannot access the controlling terminal; open an interactive terminal and retry.' >&2
+      return 1
+    fi
+    "$securityllama_bin" shell-widget \
+      --request-file "$request_file" --response-file "$response_file" \
+      </dev/tty >/dev/tty 2>&1
   fi
 
   if [[ -f "$response_file" ]]; then

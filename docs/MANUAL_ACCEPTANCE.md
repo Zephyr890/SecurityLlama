@@ -36,7 +36,9 @@ until run in the project's VirtualBox Kali VM.
 7. At a zsh prompt type, without executing,
    `curl -kI https://10.10.10.25/`. Press Alt-A, review, request a lower-impact
    variant, choose insertion, and verify the prompt changes but does not run.
-   Discard with Ctrl-C. Repeat in Bash.
+   Discard with Ctrl-C. Repeat in Bash. Repeat outside tmux in a separate macOS
+   or Kali terminal and verify the reviewer receives normal keyboard input
+   without an `Input is not a terminal` warning.
 8. Create an authorized scope containing `10.10.10.0/24`. Verify a proposal for
    `10.10.10.25` is in-scope, `192.0.2.10` is blocked, and substitution is
    unknown with typed confirmation.

@@ -1,7 +1,10 @@
+import fcntl
 import os
+import pty
 import shlex
 import shutil
 import subprocess
+import termios
 from pathlib import Path
 
 import pytest
@@ -47,6 +50,9 @@ tmux_binding = "L"
     tmux = (paths.config_dir / "shell" / "securityllama.tmux.conf").read_text()
     assert "bindkey '^[r' securityllama-widget" in zsh
     assert "bind -x '\"\\er\":_securityllama_widget'" in bash
+    assert "</dev/tty >/dev/tty 2>&1" in zsh
+    assert "</dev/tty >/dev/tty 2>&1" in bash
+    assert "zle -I" in zsh
     assert "securityllama-insert-proposal" not in zsh + bash
     assert "securityllama-open-cockpit" not in zsh + bash
     assert "bind-key L" in tmux
@@ -156,6 +162,76 @@ def test_installed_shell_resolves_widget_from_unrelated_directory_without_path(
 
     assert completed.returncode == 0, completed.stderr
     assert completed.stdout.strip() == str(launcher)
+
+
+@pytest.mark.parametrize(
+    ("shell_name", "shell_args"),
+    (("bash", ("--noprofile", "--norc")), ("zsh", ("-f",))),
+)
+def test_direct_widget_reconnects_all_streams_to_controlling_terminal(
+    tmp_path: Path, monkeypatch, shell_name: str, shell_args: tuple[str, ...]
+) -> None:
+    shell = shutil.which(shell_name)
+    if shell is None:
+        pytest.skip(f"{shell_name} is not installed")
+    home = tmp_path / "home"
+    home.mkdir()
+    launcher = tmp_path / "securityllama"
+    result = tmp_path / "tty-result"
+    launcher.write_text(
+        """#!/bin/sh
+case "$1" in
+  _make-widget-request) exit 0 ;;
+  shell-widget)
+    if [ -t 0 ] && [ -t 1 ] && [ -t 2 ]; then
+      printf '%s' tty >"$SECURITYLLAMA_TTY_RESULT"
+      exit 0
+    fi
+    exit 9
+    ;;
+  _extract-widget-response) printf '%s\\n' none ;;
+esac
+""",
+        encoding="utf-8",
+    )
+    launcher.chmod(0o700)
+    paths = AppPaths(tmp_path / "config", tmp_path / "data", tmp_path / "cache", tmp_path / "run")
+    monkeypatch.setattr("kali_copilot.install.shutil.which", lambda command: str(launcher))
+    install_shell(paths, home)
+    asset = paths.config_dir / "shell" / f"securityllama.{shell_name}"
+    environment = os.environ.copy()
+    environment["SECURITYLLAMA_TTY_RESULT"] = str(result)
+    environment["XDG_RUNTIME_DIR"] = str(paths.runtime_dir)
+    command = (
+        'source "$1" >/dev/null 2>&1 || true; '
+        "zle() { return 0; }; "
+        "unset TMUX TMUX_PANE; "
+        "BUFFER=review; CURSOR=6; READLINE_LINE=review; READLINE_POINT=6; "
+        "_securityllama_widget"
+    )
+    master_fd, slave_fd = pty.openpty()
+
+    def attach_controlling_terminal() -> None:
+        os.setsid()
+        fcntl.ioctl(slave_fd, termios.TIOCSCTTY, 0)
+
+    try:
+        completed = subprocess.run(  # noqa: S603 - fixed shell with inert test script
+            [shell, *shell_args, "-c", command, "securityllama-test", str(asset)],
+            check=False,
+            stdin=subprocess.DEVNULL,
+            stdout=slave_fd,
+            stderr=slave_fd,
+            env=environment,
+            pass_fds=(slave_fd,),
+            preexec_fn=attach_controlling_terminal,
+        )
+    finally:
+        os.close(slave_fd)
+        os.close(master_fd)
+
+    assert completed.returncode == 0
+    assert result.read_text(encoding="utf-8") == "tty"
 
 
 def test_install_preserves_legacy_hotkey_fields_without_binding_them(tmp_path: Path) -> None:
