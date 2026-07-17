@@ -18,7 +18,7 @@ operator-managed tunnel. From a clone:
   --ollama-url http://127.0.0.1:11434 \
   --model qwen2.5-coder:3b
 exec "$SHELL" -l
-tmux new -s assessment
+tmux new-session -A -s assessment
 securityllama doctor
 ```
 

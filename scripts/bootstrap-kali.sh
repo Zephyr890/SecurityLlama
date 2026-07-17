@@ -81,4 +81,4 @@ securityllama doctor
 
 printf '%s\n' 'Next steps:'
 printf '  exec %s -l\n' "${SHELL:-zsh}"
-printf '%s\n' '  tmux new -s assessment' '  securityllama doctor'
+printf '%s\n' '  tmux new-session -A -s assessment' '  securityllama doctor'

@@ -12,7 +12,8 @@ until run in the project's VirtualBox Kali VM.
 2. Clone the repository and run the documented bootstrap command twice. Confirm
    `grep -c '>>> securityllama managed block >>>' ~/.zshrc ~/.bashrc` reports one
    block per file.
-3. Start a login zsh and `tmux new -s assessment`; run `securityllama doctor`.
+3. Start a login zsh and `tmux new-session -A -s assessment`; run
+   `securityllama doctor`.
    Verify it reports both shell integration and the tmux chat binding. Press
    Prefix then A and confirm tmux creates a normal window named
    `securityllama`, not a popup. Press Prefix then A from the chat and confirm it
