@@ -123,15 +123,20 @@ and all three shell shortcuts are configurable under `[ui]`. Rerun
 migrates the former shipped `ask_hotkey = "alt-q"` value to Alt-O and backs up
 the configuration before editing it.
 
-Installed shell and tmux integration record the absolute SecurityLlama
-executable path as a fallback, so a tmux server or shell started before
-`~/.local/bin` was added to `PATH` can still open the cockpit from every working
-directory. Failed cockpit commands remain visible in the popup instead of
+Installed shell integration resolves Alt-A, Alt-I, and Alt-O through the
+absolute SecurityLlama executable recorded at installation time, falling back
+to the current `PATH` only if that launcher is no longer available. The tmux
+binding records the same absolute launcher. As a result, the shortcuts work in
+new terminal/tmux windows and unrelated working directories even when
+`~/.local/bin` is absent from `PATH` or `PATH` contains a relative virtualenv
+entry. Failed cockpit commands remain visible in the popup instead of
 disappearing immediately. Alt-O explicitly
 restores the current zsh/Bash editable buffer when the cockpit closes without
 overriding zsh's Alt-Q `push-line` shortcut. If an older shell still reports a
 SecurityLlama binding for `"^[q"`, reload it with `exec "$SHELL" -l`;
-`bindkey '^[o'` should report `securityllama-open-cockpit`.
+`bindkey '^[o'` should report `securityllama-open-cockpit`. After an upgrade,
+rerun `securityllama install-shell`, start a new login shell, and reload an
+existing tmux server with `tmux source-file ~/.tmux.conf`.
 
 At an idle cockpit prompt, Alt-O toggles the cockpit closed; terminals that do
 not map Option to Meta can use Esc then O, Ctrl-G, `/quit`, `/q`, or Ctrl-D on an

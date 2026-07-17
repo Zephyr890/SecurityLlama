@@ -68,7 +68,12 @@ until run in the project's VirtualBox Kali VM.
 13. Temporarily make the installed cockpit command fail, invoke Prefix then A,
     and verify the popup remains visible with the error. Restore the command,
     reinstall shell integration, reload `~/.tmux.conf`, and verify the cockpit
-    opens from both the repository and an unrelated working directory.
+    opens from both the repository and an unrelated working directory. Open a
+    second tmux window in that unrelated directory, remove `~/.local/bin` from
+    that shell's `PATH`, and verify Alt-A, Alt-O, and Prefix then A still work.
+    Stage an inert proposal with `/insert`, return to the second window, and
+    verify Alt-I places it only in that window's editable prompt without
+    executing it.
 14. Run uninstall without purge. Verify managed blocks and installed package are
     gone while configuration and `sessions.db` remain.
 

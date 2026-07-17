@@ -1,12 +1,27 @@
 # securityllama Bash integration: model output is inserted, never executed.
 
+_securityllama_executable() {
+  local securityllama_fallback=@SECURITYLLAMA_EXECUTABLE@
+  local securityllama_path
+  if [[ -n "$securityllama_fallback" && -x "$securityllama_fallback" ]]; then
+    printf '%s\n' "$securityllama_fallback"
+    return 0
+  fi
+  securityllama_path=$(type -P securityllama 2>/dev/null) || return 1
+  [[ -n "$securityllama_path" && -x "$securityllama_path" ]] || return 1
+  printf '%s\n' "$securityllama_path"
+}
+
 _securityllama_widget() {
   local previous_status=$?
   local runtime_dir="${XDG_RUNTIME_DIR:-/tmp/securityllama-${UID}}"
   local work_dir request_file response_file buffer_file command_file action
   local securityllama_bin
   local -a pane_args=()
-  securityllama_bin=$(command -v securityllama) || { printf '%s\n' 'securityllama is not on PATH.' >&2; return 1; }
+  securityllama_bin=$(_securityllama_executable) || {
+    printf '%s\n' 'securityllama executable is unavailable; reinstall with pipx, then run securityllama install-shell.' >&2
+    return 1
+  }
   mkdir -p -m 700 -- "$runtime_dir" || return 1
   work_dir=$(mktemp -d "$runtime_dir/widget.XXXXXXXX") || return 1
   chmod 700 "$work_dir"
@@ -49,7 +64,10 @@ bind -x '"\ea":_securityllama_widget'
 _securityllama_insert_proposal() {
   local runtime_dir="${XDG_RUNTIME_DIR:-/tmp/securityllama-${UID}}"
   local work_dir command_file action securityllama_bin
-  securityllama_bin=$(command -v securityllama) || { printf '%s\n' 'securityllama is not on PATH.' >&2; return 1; }
+  securityllama_bin=$(_securityllama_executable) || {
+    printf '%s\n' 'securityllama executable is unavailable; reinstall with pipx, then run securityllama install-shell.' >&2
+    return 1
+  }
   [[ -n ${TMUX_PANE:-} ]] || { printf '%s\n' 'SecurityLlama insertion requires tmux.' >&2; return 1; }
   if [[ -n "$READLINE_LINE" ]]; then
     printf '%s\n' 'Clear the prompt before inserting a staged SecurityLlama proposal.' >&2
@@ -71,10 +89,9 @@ _securityllama_insert_proposal() {
 
 _securityllama_open_cockpit() {
   local saved_line="$READLINE_LINE" saved_point="$READLINE_POINT" securityllama_bin
-  local securityllama_fallback=@SECURITYLLAMA_EXECUTABLE@
-  securityllama_bin=$(command -v securityllama) || securityllama_bin=$securityllama_fallback
+  securityllama_bin=$(_securityllama_executable) || true
   if [[ -n ${TMUX:-} && -n ${TMUX_PANE:-} ]]; then
-    if [[ -z "$securityllama_bin" || ! -x "$securityllama_bin" ]]; then
+    if [[ -z "$securityllama_bin" ]]; then
       printf '%s\n' 'securityllama executable is unavailable; reinstall with pipx, then run securityllama install-shell.' >&2
     else
       tmux display-popup -EE -d "$PWD" -w 92% -h 85% -T ' SecurityLlama cockpit ' -- \
