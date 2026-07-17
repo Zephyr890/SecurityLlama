@@ -35,11 +35,6 @@ package-dir = { "" = "src" }
 where = ["src"]
 
 [tool.setuptools.data-files]
-"share/securityllama/shell" = [
-  "shell/securityllama.zsh",
-  "shell/securityllama.bash",
-  "shell/securityllama.tmux.conf",
-]
 "share/securityllama/config" = ["config/config.example.toml", "config/scope.example.toml"]
 
 [tool.ruff]

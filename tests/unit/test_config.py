@@ -38,9 +38,13 @@ def test_ui_shell_hotkey_is_validated() -> None:
         UIConfig(shell_hotkey="control-a")
 
 
-def test_legacy_popup_hotkeys_load_but_are_excluded_from_public_config() -> None:
-    ui = UIConfig(insert_hotkey="alt-i", ask_hotkey="alt-o")
+def test_legacy_shell_and_popup_hotkeys_load_but_are_excluded_from_public_config() -> None:
+    ui = UIConfig(shell_hotkey="alt-a", tmux_binding="A", insert_hotkey="alt-i", ask_hotkey="alt-o")
+    assert ui.shell_hotkey == "alt-a"
+    assert ui.tmux_binding == "A"
     assert ui.insert_hotkey == "alt-i"
     assert ui.ask_hotkey == "alt-o"
+    assert "shell_hotkey" not in ui.model_dump()
+    assert "tmux_binding" not in ui.model_dump()
     assert "insert_hotkey" not in ui.model_dump()
     assert "ask_hotkey" not in ui.model_dump()

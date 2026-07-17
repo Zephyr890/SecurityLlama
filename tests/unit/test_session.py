@@ -27,7 +27,9 @@ def test_new_session_drops_previous_attachment_context(tmp_path: Path) -> None:
     assert load_attachment_state(new_session.session_id, paths).attachments == []
 
 
-def test_tmux_session_survives_directory_and_window_changes(tmp_path: Path, monkeypatch) -> None:
+def test_console_session_survives_directory_and_terminal_changes(
+    tmp_path: Path, monkeypatch
+) -> None:
     paths = AppPaths(
         tmp_path / "config", tmp_path / "data", tmp_path / "cache", tmp_path / "runtime"
     )
@@ -35,12 +37,9 @@ def test_tmux_session_survives_directory_and_window_changes(tmp_path: Path, monk
     second_directory = tmp_path / "second"
     first_directory.mkdir()
     second_directory.mkdir()
-    monkeypatch.setenv("TMUX", "/tmp/tmux-1000/default,123,0")
-    monkeypatch.setenv("TMUX_PANE", "%1")
     monkeypatch.chdir(first_directory)
     first = current_session(paths)
 
-    monkeypatch.setenv("TMUX_PANE", "%9")
     monkeypatch.chdir(second_directory)
     second = current_session(paths)
 

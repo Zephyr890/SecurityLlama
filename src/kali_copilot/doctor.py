@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import os
-import shutil
 import stat
 from dataclasses import dataclass
 from pathlib import Path
 
 from kali_copilot.audit import AuditStore
+from kali_copilot.clipboard import clipboard_provider
 from kali_copilot.config import ConfigError, load_config
-from kali_copilot.install import BEGIN
+from kali_copilot.install import desktop_launcher_path
 from kali_copilot.ollama import OllamaClient, OllamaError
 from kali_copilot.paths import resolve_paths
 from kali_copilot.scope import ScopeError, active_scope
@@ -61,34 +61,27 @@ def run_doctor() -> list[DoctorCheck]:
             else "run chmod 700 on securityllama private directories",
         )
     )
+    launcher = desktop_launcher_path()
+    launcher_ok = launcher.is_file() and not launcher.is_symlink()
     checks.append(
         DoctorCheck(
-            "tmux",
-            shutil.which("tmux") is not None,
-            "tmux found" if shutil.which("tmux") else "install tmux with apt",
+            "console launcher",
+            launcher_ok,
+            f"installed: {launcher}"
+            if launcher_ok
+            else "run `securityllama install-desktop` or `securityllama console` directly",
+            required=False,
         )
     )
-    home = Path.home()
-    sourced = any(
-        path.exists() and BEGIN in path.read_text(encoding="utf-8")
-        for path in (home / ".zshrc", home / ".bashrc")
-    )
+    provider = clipboard_provider()
     checks.append(
         DoctorCheck(
-            "shell integration",
-            sourced,
-            "managed block found" if sourced else "run `securityllama install-shell`",
-        )
-    )
-    tmux_config = home / ".tmux.conf"
-    tmux_sourced = tmux_config.exists() and BEGIN in tmux_config.read_text(encoding="utf-8")
-    checks.append(
-        DoctorCheck(
-            "tmux chat binding",
-            tmux_sourced,
-            "managed Prefix binding found"
-            if tmux_sourced
-            else "run `securityllama install-shell`, then `tmux source-file ~/.tmux.conf`",
+            "clipboard",
+            provider is not None,
+            f"proposal copy available through {provider.name}"
+            if provider
+            else "install xclip on Kali; chat remains usable but /copy is unavailable",
+            required=False,
         )
     )
     client = OllamaClient(config)

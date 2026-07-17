@@ -42,11 +42,8 @@ require_scope_for_network_insert = true
 allow_out_of_scope_insert = false
 require_second_confirmation_for_high_risk = true
 
-# Alt-A reviews the exact editable buffer. Prefix then tmux_binding toggles the
-# dedicated SecurityLlama chat window.
+# The standalone console is a normal terminal application with no shell hotkeys.
 [ui]
-shell_hotkey = "alt-a"
-tmux_binding = "A"
 reduced_motion = false
 monochrome = false
 completion_bell = false

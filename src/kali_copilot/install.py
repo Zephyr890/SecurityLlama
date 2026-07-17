@@ -1,27 +1,25 @@
-"""Idempotent, backup-first shell integration installation."""
+"""Idempotent desktop-console installation and legacy shell cleanup."""
 
 from __future__ import annotations
 
 import os
-import shlex
 import shutil
 import sys
+from contextlib import suppress
 from datetime import UTC, datetime
 from pathlib import Path
 
-from kali_copilot.paths import AppPaths, ensure_private_directory, resolve_paths
+from kali_copilot.paths import AppPaths, resolve_paths
 
 BEGIN = "# >>> securityllama managed block >>>"
 END = "# <<< securityllama managed block <<<"
 LEGACY_BEGIN = "# >>> kali-copilot managed block >>>"
 LEGACY_END = "# <<< kali-copilot managed block <<<"
+DESKTOP_FILENAME = "securityllama-console.desktop"
 
 
-def _asset_dir() -> Path:
-    checkout = Path(__file__).resolve().parents[2] / "shell"
-    if checkout.exists():
-        return checkout
-    return Path(sys.prefix) / "share" / "securityllama" / "shell"
+class InstallError(RuntimeError):
+    """The console launcher could not be installed safely."""
 
 
 def _installed_executable() -> str | None:
@@ -37,101 +35,105 @@ def _installed_executable() -> str | None:
     return os.path.abspath(Path(executable).expanduser())
 
 
-def _render_asset(name: str, content: str, paths: AppPaths) -> str:
-    """Apply validated UI bindings when shell assets are installed."""
-    from kali_copilot.config import ConfigError, UIConfig, load_config
-
-    try:
-        ui = load_config(paths).ui
-    except ConfigError:
-        ui = UIConfig()
-    executable = _installed_executable()
-    shell_executable = shlex.quote(executable) if executable is not None else "''"
-    if name == "securityllama.zsh":
-        content = content.replace("'^[a'", f"'^[{ui.shell_hotkey[-1]}'")
-        content = content.replace("@SECURITYLLAMA_EXECUTABLE@", shell_executable)
-    elif name == "securityllama.bash":
-        content = content.replace('"\\ea"', f'"\\e{ui.shell_hotkey[-1]}"')
-        content = content.replace("@SECURITYLLAMA_EXECUTABLE@", shell_executable)
-    elif name == "securityllama.tmux.conf":
-        launcher = executable or "securityllama"
-        base_command = shlex.join([launcher, "_open-chat", "--executable", launcher])
-        chat_command = f"{base_command} --pane #{{q:pane_id}} --cwd #{{q:pane_current_path}}"
-        escaped = (
-            chat_command.replace("\\", "\\\\")
-            .replace('"', '\\"')
-            .replace("$", "\\$")
-            .replace("`", "\\`")
-        )
-        content = content.replace("@SECURITYLLAMA_CHAT_COMMAND@", f'"{escaped}"')
-        content = content.replace("bind-key A ", f"bind-key {ui.tmux_binding} ")
-    return content
+def desktop_launcher_path(home: Path | None = None, environ: dict[str, str] | None = None) -> Path:
+    """Return the XDG application-launcher path without creating it."""
+    env = os.environ if environ is None else environ
+    user_home = home or Path(env.get("HOME", str(Path.home())))
+    data_home = Path(env.get("XDG_DATA_HOME", user_home / ".local/share"))
+    return data_home / "applications" / DESKTOP_FILENAME
 
 
-def _backup(path: Path) -> None:
-    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    shutil.copy2(path, path.with_name(f"{path.name}.securityllama-backup-{timestamp}"))
+def _desktop_exec_argument(value: str) -> str:
+    if not value or any(char in value for char in ("\n", "\r", "\x00")):
+        raise InstallError("SecurityLlama executable path is invalid")
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"').replace("`", "\\`")
+    escaped = escaped.replace("$", "\\$")
+    escaped = escaped.replace("%", "%%")
+    return f'"{escaped}"'
 
 
-def _replace_block(path: Path, body: str) -> bool:
-    existing = path.read_text(encoding="utf-8") if path.exists() else ""
-    start = existing.find(BEGIN)
-    end = existing.find(END, start + len(BEGIN)) if start >= 0 else -1
-    block = f"{BEGIN}\n{body.rstrip()}\n{END}"
-    if start >= 0 and end >= 0:
-        updated = existing[:start] + block + existing[end + len(END) :]
-    else:
-        legacy_start = existing.find(LEGACY_BEGIN)
-        legacy_end = existing.find(LEGACY_END, legacy_start + len(LEGACY_BEGIN))
-        if legacy_start >= 0 and legacy_end >= 0:
-            updated = existing[:legacy_start] + block + existing[legacy_end + len(LEGACY_END) :]
-        else:
-            separator = "" if not existing or existing.endswith("\n") else "\n"
-            updated = existing + separator + block + "\n"
-    if updated == existing:
-        return False
-    if path.exists():
-        _backup(path)
-    path.write_text(updated, encoding="utf-8")
-    return True
+def _desktop_content(executable: str) -> str:
+    return f"""[Desktop Entry]
+Type=Application
+Version=1.0
+Name=SecurityLlama Console
+Comment=Human-in-the-loop Ollama terminal console
+Exec={_desktop_exec_argument(executable)} console
+Icon=utilities-terminal
+Terminal=true
+Categories=System;Security;
+StartupNotify=true
+"""
 
 
-def install_shell(paths: AppPaths | None = None, home: Path | None = None) -> list[Path]:
-    """Install assets and one managed source block per supported config file."""
-    resolved = paths or resolve_paths()
-    user_home = home or Path.home()
-    destination = resolved.config_dir / "shell"
-    ensure_private_directory(resolved.config_dir)
-    ensure_private_directory(destination)
-    assets = _asset_dir()
-    installed: list[Path] = []
-    for name in ("securityllama.zsh", "securityllama.bash", "securityllama.tmux.conf"):
-        target = destination / name
-        content = (assets / name).read_text(encoding="utf-8")
-        target.write_text(_render_asset(name, content, resolved), encoding="utf-8")
-        target.chmod(0o600)
-        installed.append(target)
-    mappings = (
-        (user_home / ".zshrc", f'source "{destination / "securityllama.zsh"}"'),
-        (user_home / ".bashrc", f'source "{destination / "securityllama.bash"}"'),
-        (user_home / ".tmux.conf", f'source-file "{destination / "securityllama.tmux.conf"}"'),
-    )
-    for path, source_line in mappings:
-        _replace_block(path, source_line)
-    return installed
+def _remove_managed_block(path: Path) -> None:
+    if not path.exists():
+        return
+    text = path.read_text(encoding="utf-8")
+    leading_block = text.startswith(BEGIN) or text.startswith(LEGACY_BEGIN)
+    updated = text
+    for begin_marker, end_marker in ((BEGIN, END), (LEGACY_BEGIN, LEGACY_END)):
+        while True:
+            start = updated.find(begin_marker)
+            end = updated.find(end_marker, start + len(begin_marker)) if start >= 0 else -1
+            if start < 0 or end < 0:
+                break
+            updated = updated[:start] + updated[end + len(end_marker) :]
+    if updated == text:
+        return
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
+    backup = path.with_name(f"{path.name}.securityllama-backup-{timestamp}")
+    shutil.copy2(path, backup)
+    path.write_text(updated.lstrip("\n") if leading_block else updated, encoding="utf-8")
 
 
 def remove_shell_blocks(home: Path | None = None) -> None:
+    """Remove obsolete SecurityLlama shell and tmux source blocks."""
     user_home = home or Path.home()
     for path in (user_home / ".zshrc", user_home / ".bashrc", user_home / ".tmux.conf"):
-        if not path.exists():
-            continue
-        text = path.read_text(encoding="utf-8")
-        start = text.find(BEGIN)
-        end = text.find(END, start + len(BEGIN)) if start >= 0 else -1
-        if start < 0 or end < 0:
-            start = text.find(LEGACY_BEGIN)
-            end = text.find(LEGACY_END, start + len(LEGACY_BEGIN)) if start >= 0 else -1
-        if start >= 0 and end >= 0:
-            updated = text[:start] + text[end + len(END) :]
-            path.write_text(updated.lstrip("\n") if not text[:start] else updated, encoding="utf-8")
+        _remove_managed_block(path)
+
+
+def _remove_generated_shell_assets(paths: AppPaths) -> None:
+    directory = paths.config_dir / "shell"
+    for name in ("securityllama.zsh", "securityllama.bash", "securityllama.tmux.conf"):
+        target = directory / name
+        if target.is_file() or target.is_symlink():
+            target.unlink()
+    with suppress(OSError):
+        directory.rmdir()
+
+
+def install_desktop(
+    paths: AppPaths | None = None,
+    home: Path | None = None,
+    environ: dict[str, str] | None = None,
+) -> Path:
+    """Install one terminal-enabled desktop launcher and retire old shell hooks."""
+    resolved = paths or resolve_paths(environ)
+    executable = _installed_executable()
+    if executable is None:
+        raise InstallError("securityllama executable is unavailable; reinstall with pipx")
+    target = desktop_launcher_path(home, environ)
+    target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    content = _desktop_content(executable)
+    if target.exists() and (not target.is_file() or target.is_symlink()):
+        raise InstallError(f"desktop launcher must be a regular file: {target}")
+    target.write_text(content, encoding="utf-8")
+    target.chmod(0o600)
+    remove_shell_blocks(home)
+    _remove_generated_shell_assets(resolved)
+    return target
+
+
+def remove_desktop(home: Path | None = None, environ: dict[str, str] | None = None) -> None:
+    """Remove only the generated desktop launcher."""
+    target = desktop_launcher_path(home, environ)
+    if target.is_symlink():
+        raise InstallError(f"refusing to remove symlinked desktop launcher: {target}")
+    target.unlink(missing_ok=True)
+
+
+def install_shell(paths: AppPaths | None = None, home: Path | None = None) -> list[Path]:
+    """Deprecated compatibility alias that installs the standalone console launcher."""
+    return [install_desktop(paths, home)]

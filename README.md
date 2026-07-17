@@ -1,8 +1,9 @@
 # securityllama
 
-`securityllama` is a terminal assistant for authorized security testing in Kali
-Linux VMs. It sends bounded, sanitized context to an operator-configured Ollama
-endpoint and can place a proposed command into an editable zsh or Bash prompt.
+`securityllama` is a standalone terminal assistant for authorized security
+testing in Kali Linux VMs. Its interactive console sends bounded, sanitized,
+operator-selected context to a configured Ollama endpoint and can copy a
+validated command proposal to the system clipboard.
 
 The application never executes a model-generated command. A human must inspect
 the exact proposal and press Enter in their ordinary shell. Scope classification
@@ -17,9 +18,8 @@ operator-managed tunnel. From a clone:
 ./scripts/bootstrap-kali.sh \
   --ollama-url http://127.0.0.1:11434 \
   --model qwen2.5-coder:3b
-exec "$SHELL" -l
-tmux new-session -A -s assessment
 securityllama doctor
+securityllama console
 ```
 
 For an interactive setup after installation, run:
@@ -35,8 +35,8 @@ On a fresh checkout, the install-and-setup wizard can be run directly with:
 ```
 
 The wizard configures the Ollama URL and model, keeps extended thinking
-disabled by default for faster CPU responses, installs shell integration, and
-runs the same diagnostics as `securityllama doctor`. It also records the Mac
+disabled by default for faster CPU responses, installs a Kali application-menu
+launcher, and runs the same diagnostics as `securityllama doctor`. It also records the Mac
 SSH tunnel details and prints the command to run manually. Show it later with:
 
 ```sh
@@ -49,36 +49,36 @@ interactive experience on CPU-only hosts. Set `[ollama].think = true` in
 latency.
 
 The bootstrap installs only required Debian packages, installs this package with
-pipx, preserves existing configuration, backs up changed shell files, and is
-safe to rerun after `git pull`. Use `--no-apt` when dependencies are already
-managed, `--dev` for an editable pipx install, or `--scope NAME` to create/select
-a restrictive scope template.
+pipx, preserves existing configuration, installs an idempotent XDG desktop
+launcher, and removes obsolete SecurityLlama-managed shell/tmux blocks after
+backing up any affected user configuration. It is safe to rerun after `git
+pull`. Use `--no-apt` when dependencies are already managed, `--dev` for an
+editable pipx install, or `--scope NAME` to create/select a restrictive scope
+template.
 
 ## Use
 
-Prefix then A creates or focuses a persistent tmux window named
-`securityllama`. Press the same binding from the chat window to return to the
-previous tmux window. This is an ordinary terminal REPL rather than a popup, so
-conversation input does not share zsh ZLE, Bash Readline, Meta-key handling, or
-the assessment shell's editable buffer. The binding records the invoking pane
-and working directory every time; the next request captures that pane even when
-the chat was originally opened from another tmux window or directory.
+Run `securityllama console` from any terminal and directory, or launch
+**SecurityLlama Console** from Kali's application menu. `securityllama chat`
+remains a compatibility alias. The console is a self-contained terminal
+application like GhostWire: it does not own the assessment shell, require tmux,
+install Meta-key bindings, or scrape another terminal window.
 
-Run `securityllama chat` directly inside tmux when a shortcut is not desired.
-The legacy `securityllama cockpit --pane ID` command remains an alias for upgrade
-compatibility, but installed integration no longer opens a cockpit popup.
-
-At a zsh or Bash prompt, Alt-A remains an optional one-shot review of the exact
-editable command buffer. A validated replacement can be assigned to that buffer
-only after confirmation; the operator must still press Enter. No other Alt-key
-bindings are installed by default.
-
-The chat shows an animated request indicator, background request status,
+The console shows an animated request indicator, background request status,
 model/profile/session status, validated responses, and an estimated context
-budget. Use `/context` to inspect included sources and
-`/include terminal|memory|scope on|off` to control the next request. Token counts
-are estimates because exact tokenization is model-specific. Captured text
-remains bounded, sanitized, redacted, and omitted from persistent audit storage.
+budget. Use `/context` to inspect included sources and `/include memory|scope
+on|off` to control the next request. Token counts are estimates because exact
+tokenization is model-specific.
+
+Context enters the model only through explicit operator actions:
+
+- text typed or pasted as a console question;
+- text files selected with `/attach PATH`; or
+- bounded stdin sent to a direct command such as `securityllama explain`.
+
+The standalone console performs no implicit terminal-scrollback capture. All
+selected text is bounded, terminal-sanitized, secret-redacted, and omitted from
+persistent audit storage by default.
 
 Attach text evidence to the current logical session with `/attach PATH`:
 
@@ -89,23 +89,23 @@ Attach text evidence to the current logical session with `/attach PATH`:
 /detach all
 ```
 
-Attachments remain active when the chat window is closed and reopened. They stop
+Attachments remain active when the console is closed and reopened. They stop
 contributing to context when explicitly detached or when `/new`, `session new`,
 or `session clear` starts a new logical session. SecurityLlama stores only
 private runtime references—not file contents—and re-reads each file for every
 request. Replaced files must be detached and reattached. Symlinks, non-regular
 files, binary files containing NUL bytes, oversized files, and unreadable files
 are rejected. Terminal controls and likely secrets are removed before attached
-text is sent to Ollama. All terminal and attachment text shares the configured
-context bounds, so `/context` reports when combined input was truncated.
+text is sent to Ollama. Attachment text shares the configured context bounds, so
+`/context` reports when input was truncated.
 
 When a proposal passes local policy, `/copy` sends its validated single-line
-text to the tmux paste buffer through stdin. Use Prefix then A to return to the
-shell and tmux's normal Prefix then ] binding to paste it into the editable
-prompt. SecurityLlama never types into a pane or sends Enter; the operator still
-reviews the exact text and explicitly executes or discards it.
+text through stdin to `xclip`, `wl-copy`, `xsel`, or macOS `pbcopy`. Paste it
+into an ordinary editable shell prompt, inspect the exact text, and explicitly
+execute or discard it. SecurityLlama never invokes a shell with that text,
+types into a terminal, or sends Enter.
 
-Useful chat commands include:
+Useful console commands include:
 
 ```text
 /help                       keyboard and command reference
@@ -114,7 +114,7 @@ Useful chat commands include:
 /mode ask|explain|review|suggest
 /profile fast|deep
 /context
-/include terminal|memory|scope on|off
+/include memory|scope on|off
 /attach PATH  /attachments  /detach PATH|all
 /proposals  /next  /prev
 /alternative Prefer a passive validation
@@ -126,25 +126,15 @@ Useful chat commands include:
 /new  /clear  /quit  /q
 ```
 
-Reduced motion, monochrome output, completion bell, the Alt-A review key, and
-the tmux chat binding are configurable under `[ui]`. Legacy `popup_*`,
-`insert_hotkey`, `ask_hotkey`, and `proposal_ttl_seconds` settings are accepted
-so existing files still load, but they are ignored. Rerun
-`securityllama install-shell` after changing bindings.
+Reduced motion, monochrome output, and the completion bell are configurable
+under `[ui]`. Legacy popup, shell-hotkey, and tmux-binding settings are accepted
+so existing files still load, but they are ignored. `securityllama
+install-desktop` refreshes the application-menu launcher after an upgrade.
 
-Installed integration records the absolute SecurityLlama launcher for both
-Alt-A and Prefix then A, so they work from unrelated directories even when
-`~/.local/bin` is absent from `PATH`. After an upgrade, rerun
-`securityllama install-shell`, start a new login shell, and reload an existing
-tmux server with `tmux source-file ~/.tmux.conf`. `securityllama doctor` checks
-the shell and tmux managed blocks separately.
-
-Submitting a question captures and redacts bounded context from the most recent
-originating pane, starts a detached request, and immediately returns to the chat
-prompt. Prefix then A returns to the shell without stopping the request. `/last`
-refreshes the newest request and `/jobs` lists up to 20 recent requests.
-Starting `/new` moves to a new logical session, so earlier results remain
-associated with the old session.
+Submitting a question starts a detached request and immediately returns to the
+console prompt. `/last` refreshes the newest request and `/jobs` lists up to 20
+recent requests. Starting `/new` moves to a new logical session, so earlier
+results remain associated with the old session.
 
 The chat prompt animates with the active request count and elapsed time.
 Completed answers render automatically above the editable prompt; the operator
@@ -157,17 +147,14 @@ later answers from overtaking earlier ones. Immediately before a queued request
 starts, SecurityLlama refreshes its bounded conversation memory with completed
 earlier turns when auditing and memory inclusion are enabled. Each result is
 rendered as a question/answer card carrying the same short request ID, and any
-proposal retains that request identity and its originating pane.
+proposal retains that request identity.
 
-Clearly conceptual questions—such as “explain the basics of web app fuzzing”—
-automatically omit unrelated terminal capture so small local models are not
-distracted by shell metadata. `/context` reports this as `Terminal auto-omitted`.
-Conceptual turns cannot publish a command: even if the model returns
-one, SecurityLlama removes it and its action metadata locally. Actionable
+Conceptual turns cannot publish a command: even if the model returns one,
+SecurityLlama removes it and its action metadata locally. Actionable
 requests made through review/suggest mode or explicit command language retain
 normal proposal behavior. The chat renders an eligible proposal exactly once.
 
-Raw terminal and attachment context crosses to the detached worker through an
+Raw selected and attachment context crosses to the detached worker through an
 anonymous pipe and is not written to background job state. Private `0600`
 runtime state contains the submitted question, status, sanitized validated
 answer, and inert proposal metadata so the chat can recover after closing.
@@ -178,7 +165,7 @@ Non-interactive modes also accept bounded context on stdin:
 ```sh
 securityllama ask "What does this failure imply?"
 journalctl -n 50 | securityllama explain "Identify the likely failure boundary."
-securityllama review "Review the current command."
+securityllama review "Review this command: curl -I https://example.test/"
 nmap-output-command | securityllama suggest "Propose one low-impact validation."
 ```
 
@@ -256,15 +243,15 @@ project does not modify VirtualBox, host firewall, SSH, or Ollama settings.
 
 ## Trust boundary
 
-Terminal captures, banners, files, and model output are untrusted. The finished
+Pasted text, piped output, attached files, and model output are untrusted. The
 application strips terminal controls, redacts likely secrets, bounds context,
-validates structured model responses, and stores no raw terminal context by
+validates structured model responses, and stores no raw selected context by
 default. It cannot determine whether a real-world action is authorized; that
 responsibility remains with the operator.
 
 The architecture keeps five boundaries separate:
 
-1. Shell/tmux integration captures only explicit, bounded context.
+1. Console, attachment, and stdin adapters accept only explicit, bounded context.
 2. Sanitization removes terminal controls and redacts likely secrets.
 3. Ollama receives a versioned JSON packet labelled as untrusted data.
 4. Pydantic validates the structured response before display or insertion.
@@ -273,7 +260,7 @@ The architecture keeps five boundaries separate:
 
 Session memory includes a bounded number of redacted turns: the answer plus
 structured findings, assumptions, and warnings. It does not include historical
-terminal captures or raw input files. Audits default to
+selected context or raw input files. Audits default to
 `~/.local/share/securityllama/sessions.db`, mode `0600`, and omit raw context.
 Set `[audit].enabled = false` to disable both audit records and persistent recent
 turn memory. Session names, operator-authored notes, bookmarks, proposal
@@ -283,10 +270,10 @@ permissions. Reports explicitly omit raw terminal context.
 ## Troubleshooting and removal
 
 Run `securityllama doctor` first. It reports configuration, private-directory
-permissions, tmux, shell sourcing, endpoint reachability, model availability,
-scope status, and audit writability independently. Exit code `3` means the
-endpoint is unavailable, `4` means the model is not listed, and `5` means two
-structured-response validations failed.
+permissions, console-launcher and clipboard availability, endpoint reachability,
+model availability, scope status, and audit writability independently. Exit code
+`3` means the endpoint is unavailable, `4` means the model is not listed, and
+`5` means two structured-response validations failed.
 
 For exit code 5, repeat the request with `--debug`. SecurityLlama prints bounded,
 terminal-sanitized, secret-redacted previews of the initial and repair model
@@ -302,7 +289,7 @@ Review redacted debug output before sharing it because target details are not
 treated as secrets automatically.
 
 After an update, rerun `./scripts/bootstrap-kali.sh` with the same explicit URL
-and model. To remove the package and managed shell blocks while preserving user
+and model. To remove the package and desktop launcher while preserving user
 configuration and audits:
 
 ```sh

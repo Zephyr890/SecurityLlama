@@ -13,6 +13,7 @@ while (($#)); do
   esac
 done
 
+securityllama uninstall-desktop
 securityllama uninstall-shell
 
 config_home=${SECURITYLLAMA_CONFIG_HOME:-${XDG_CONFIG_HOME:-$HOME/.config}/securityllama}

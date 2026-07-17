@@ -35,14 +35,13 @@ def test_detached_worker_finishes_after_submitter_returns(monkeypatch, tmp_path:
         username="operator",
         shell="zsh",
         cwd="/assessment",
-        pane_id="%7",
         recent_output="bounded synthetic evidence",
         capture_truncated=False,
         redactions=[],
     )
     paths = resolve_paths()
 
-    job = start_job(config, packet, None, pane_id="%7", paths=paths)
+    job = start_job(config, packet, None, paths=paths)
     assert job.status == "queued"
 
     deadline = time.monotonic() + 10
@@ -93,7 +92,6 @@ def test_session_requests_are_serialized_and_refresh_conversation_memory(
             username="operator",
             shell="zsh",
             cwd="/assessment",
-            pane_id="%7",
             recent_output="bounded synthetic evidence",
             capture_truncated=False,
             redactions=[],
@@ -103,7 +101,6 @@ def test_session_requests_are_serialized_and_refresh_conversation_memory(
         config,
         packet("FIRST_UNIQUE_QUESTION"),
         None,
-        pane_id="%7",
         refresh_memory=True,
         paths=paths,
     )
@@ -111,7 +108,6 @@ def test_session_requests_are_serialized_and_refresh_conversation_memory(
         config,
         packet("SECOND_UNIQUE_QUESTION"),
         None,
-        pane_id="%7",
         refresh_memory=True,
         paths=paths,
     )

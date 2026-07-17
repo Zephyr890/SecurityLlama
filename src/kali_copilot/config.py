@@ -75,13 +75,13 @@ class PolicyConfig(StrictModel):
 
 
 class UIConfig(StrictModel):
-    shell_hotkey: str = "alt-a"
-    tmux_binding: str = "A"
     reduced_motion: bool = False
     monochrome: bool = False
     completion_bell: bool = False
     # Accepted only so existing configuration files remain valid after the
-    # popup-to-chat migration. Installation no longer binds or uses them.
+    # standalone-console migration. Installation no longer binds or uses them.
+    shell_hotkey: str = Field("alt-a", exclude=True)
+    tmux_binding: str = Field("A", exclude=True)
     popup_width_percent: int = Field(92, ge=30, le=100, exclude=True)
     popup_height_percent: int = Field(85, ge=30, le=100, exclude=True)
     insert_hotkey: str | None = Field(None, exclude=True)

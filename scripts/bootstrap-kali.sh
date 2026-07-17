@@ -40,7 +40,7 @@ if [[ $no_apt == false ]]; then
   if ((EUID != 0)); then apt=(sudo apt-get); fi
   if [[ $non_interactive == true ]]; then export DEBIAN_FRONTEND=noninteractive; fi
   "${apt[@]}" update
-  "${apt[@]}" install --yes python3 python3-venv pipx tmux zsh
+  "${apt[@]}" install --yes python3 python3-venv pipx xclip zsh
 fi
 
 if ! command -v pipx >/dev/null 2>&1; then
@@ -76,9 +76,8 @@ if [[ -n $scope ]]; then
   fi
   securityllama scope use "$scope"
 fi
-securityllama install-shell
+securityllama install-desktop
 securityllama doctor
 
 printf '%s\n' 'Next steps:'
-printf '  exec %s -l\n' "${SHELL:-zsh}"
-printf '%s\n' '  tmux new-session -A -s assessment' '  securityllama doctor'
+printf '%s\n' '  securityllama console' '  securityllama doctor'

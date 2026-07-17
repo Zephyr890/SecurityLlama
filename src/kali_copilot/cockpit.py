@@ -1,4 +1,4 @@
-"""Persistent multi-turn terminal chat for tmux."""
+"""Persistent multi-turn standalone terminal console."""
 
 from __future__ import annotations
 
@@ -39,8 +39,8 @@ from kali_copilot.background import (
     mark_viewed,
     start_job,
 )
+from kali_copilot.clipboard import ClipboardError, copy_to_clipboard
 from kali_copilot.config import AppConfig, ModelProfile
-from kali_copilot.context import ContextCollector
 from kali_copilot.models import AssistantResponse, BackgroundJob, ContextPacket, PolicyAssessment
 from kali_copilot.ollama import OllamaClient
 from kali_copilot.paths import resolve_paths
@@ -48,7 +48,6 @@ from kali_copilot.policy import assess_proposal
 from kali_copilot.prompting import (
     chat_messages,
     enforce_request_contract_for,
-    terminal_context_relevant,
 )
 from kali_copilot.reporting import markdown_report
 from kali_copilot.sanitize import (
@@ -59,7 +58,6 @@ from kali_copilot.sanitize import (
 )
 from kali_copilot.scope import active_scope
 from kali_copilot.session import clear_session, current_session
-from kali_copilot.tmux import copy_to_buffer, current_chat_origin_pane, validate_pane_id
 from kali_copilot.ui import render_response
 
 HELP = """Chat commands
@@ -68,14 +66,14 @@ HELP = """Chat commands
   /context                      inspect the next model request
   /status                       check endpoint, model, scope, and session
   /jobs, /last                 check requests or show the newest result
-  /include terminal|memory|scope on|off
+  /include memory|scope on|off
   /attach PATH                   attach a text file to this session
   /attachments                   list session attachments
   /detach PATH|all               remove session attachments
   /profile NAME                 select a configured model profile
   /proposals, /next, /prev      inspect and select proposals
   /diff TEXT                    compare selected proposal with TEXT
-  /copy                         copy selected proposal to the tmux paste buffer
+  /copy                         copy selected proposal to the system clipboard
   /reject                       mark selected proposal rejected
   /alternative [instruction]    request another proposal
   /note TEXT, /bookmark TEXT    add an operator note
@@ -83,13 +81,12 @@ HELP = """Chat commands
   /report PATH                  export a redacted Markdown report
   /new                          begin a new logical session
   /clear                        clear the screen (does not erase audits)
-  /quit, /q                     close the chat window
+  /quit, /q                     close the console
 
-Prefix then A toggles between this persistent chat window and the originating
-shell. Submitted requests continue in a detached process and render here when
-complete. After /copy, return to the shell and use tmux's normal Prefix then ]
-paste binding. Pasted text remains editable; SecurityLlama never sends Enter or
-executes a proposed command.
+Run this console in any terminal window or directory. Context is added only by
+explicit questions, attachments, or piped direct CLI requests. After /copy,
+paste into an ordinary editable shell prompt and inspect it before pressing
+Enter. SecurityLlama never types or executes a proposed command.
 """
 
 
@@ -98,16 +95,13 @@ class ProposalItem:
     response: AssistantResponse
     assessment: PolicyAssessment
     interaction_id: str | None
-    pane_id: str
     job_id: str
     question: str
 
 
 @dataclass
 class CockpitState:
-    pane_id: str
     mode: str = "ask"
-    include_terminal: bool = True
     include_memory: bool = True
     include_scope: bool = True
     profile_name: str = "fast"
@@ -192,8 +186,7 @@ def context_usage(packet: ContextPacket, config: AppConfig) -> dict[str, int | b
         "estimated_request": estimated_tokens,
         "estimated_percent": round(estimated_tokens * 100 / config.ollama.num_ctx),
         "question_chars": len(packet.question),
-        "terminal_chars": len(packet.recent_output),
-        "buffer_chars": len(packet.current_buffer or ""),
+        "context_chars": len(packet.recent_output),
         "memory_turns": len(packet.recent_turns),
         "redactions": sum(record.count for record in packet.redactions),
         "truncated": packet.capture_truncated,
@@ -201,14 +194,12 @@ def context_usage(packet: ContextPacket, config: AppConfig) -> dict[str, int | b
 
 
 class Cockpit:
-    def __init__(self, config: AppConfig, pane_id: str, *, console: Console | None = None) -> None:
+    def __init__(self, config: AppConfig, *, console: Console | None = None) -> None:
         self.base_config = config
-        self.state = CockpitState(validate_pane_id(pane_id))
+        self.state = CockpitState()
         self.console = console or Console(no_color=config.ui.monochrome)
         self.paths = resolve_paths()
         self._last_attachments = AttachmentBundle("", [], [], False, 0)
-        self._last_terminal_chars = 0
-        self._terminal_auto_omitted = False
         self._loaded_job_ids: set[str] = set()
         self._running_jobs: dict[str, datetime] = {}
 
@@ -217,39 +208,19 @@ class Cockpit:
         profile = self.base_config.profiles.get(self.state.profile_name)
         return _profiled_config(self.base_config, profile) if profile else self.base_config
 
-    def _refresh_origin_pane(self) -> None:
-        self.state.pane_id = current_chat_origin_pane(self.state.pane_id)
-
     def _packet(self, question: str) -> ContextPacket:
-        self._refresh_origin_pane()
         safe_question = redact_secrets(strip_terminal_sequences(question))
-        use_terminal = self.state.include_terminal and terminal_context_relevant(
-            self.state.mode, safe_question.text
-        )
-        self._terminal_auto_omitted = self.state.include_terminal and not use_terminal
-        if use_terminal:
-            packet = ContextCollector(self.config).collect_tmux(
-                self.state.pane_id, self.state.mode, safe_question.text
-            )
-        else:
-            from kali_copilot.app import make_basic_packet
+        from kali_copilot.app import make_basic_packet
 
-            packet = make_basic_packet(self.state.mode, safe_question.text, "")
-            packet = packet.model_copy(update={"pane_id": self.state.pane_id, "redactions": []})
+        packet = make_basic_packet(self.state.mode, safe_question.text, "")
         packet = packet.model_copy(update={"session_id": current_session(self.paths).session_id})
-        self._last_terminal_chars = len(packet.recent_output)
         self._last_attachments = read_attachments(
             packet.session_id,
             max_file_bytes=self.config.context.max_attachment_file_bytes,
             paths=self.paths,
         )
-        combined_sections = []
-        if packet.recent_output:
-            combined_sections.append("TERMINAL_CONTEXT_BEGIN\n" + packet.recent_output)
-        if self._last_attachments.text:
-            combined_sections.append(self._last_attachments.text)
         combined = truncate_text(
-            "\n\n".join(combined_sections),
+            self._last_attachments.text,
             self.config.context.max_capture_lines,
             self.config.context.max_capture_bytes,
         )
@@ -273,14 +244,13 @@ class Cockpit:
         return packet.model_copy(update=updates)
 
     def _header(self) -> None:
-        self._refresh_origin_pane()
         session = current_session(self.paths).session_id
         with AuditStore(self.paths.database_file) as store:
             name = store.session_name(session)
-        title = f"SecurityLlama chat — {name or session[:10]}"
+        title = f"SecurityLlama console — {name or session[:10]}"
         subtitle = (
-            f"pane {self.state.pane_id} · mode {self.state.mode} · "
-            f"profile {self.state.profile_name} · model {self.config.ollama.model}"
+            f"cwd {Path.cwd()} · mode {self.state.mode} · profile {self.state.profile_name} · "
+            f"model {self.config.ollama.model}"
         )
         attachments = load_attachment_state(session, self.paths).attachments
         if attachments:
@@ -296,12 +266,9 @@ class Cockpit:
             ("Estimated request", f"{usage['estimated_request']} ({usage['estimated_percent']}%)"),
             ("Reserved response", str(usage["reserved_response"])),
             ("Question", f"{usage['question_chars']} chars"),
-            ("Terminal capture", f"{self._last_terminal_chars} chars"),
-            ("Terminal auto-omitted", str(self._terminal_auto_omitted).lower()),
             ("Attached files", str(len(self._last_attachments.attachments))),
             ("Attachment source", f"{self._last_attachments.original_bytes} bytes"),
             ("Attachment context", f"{len(self._last_attachments.text)} chars before total bound"),
-            ("Editable buffer", f"{usage['buffer_chars']} chars"),
             ("Conversation memory", f"{usage['memory_turns']} turns"),
             ("Redactions", str(usage["redactions"])),
             ("Capture truncated", str(usage["truncated"]).lower()),
@@ -356,14 +323,12 @@ class Cockpit:
                     self.config,
                     packet,
                     active_scope(self.paths),
-                    pane_id=self.state.pane_id,
                     refresh_memory=self.state.include_memory,
                     paths=self.paths,
                 )
             self.console.print(
                 f"Request {job.job_id[:8]} was queued in the background. "
-                "Its answer will appear here automatically. Use Prefix then A to return "
-                "to the originating shell while it runs."
+                "Its answer will appear here automatically; this terminal remains interactive."
             )
             self._running_jobs[job.job_id] = job.created_at
         except KeyboardInterrupt:
@@ -441,7 +406,6 @@ class Cockpit:
                     response,
                     assessment,
                     job.interaction_id,
-                    job.pane_id,
                     job.job_id,
                     job.question,
                 )
@@ -540,7 +504,6 @@ class Cockpit:
                 store.update_disposition(item.interaction_id, value)
 
     def _handle(self, line: str) -> bool:
-        self._refresh_origin_pane()
         try:
             parts = shlex.split(line)
         except ValueError as exc:
@@ -566,12 +529,16 @@ class Cockpit:
                 self.console.print(f"Profile: {args[0]}")
         elif command == "/include" and len(args) == 2:
             mapping = {
-                "terminal": "include_terminal",
                 "memory": "include_memory",
                 "scope": "include_scope",
             }
-            if args[0] not in mapping or args[1] not in {"on", "off"}:
-                self.console.print("Usage: /include terminal|memory|scope on|off")
+            if args[0] == "terminal":
+                self.console.print(
+                    "Automatic terminal capture is unavailable in the standalone console. "
+                    "Use /attach, paste into a question, or pipe context to a direct command."
+                )
+            elif args[0] not in mapping or args[1] not in {"on", "off"}:
+                self.console.print("Usage: /include memory|scope on|off")
             else:
                 setattr(self.state, mapping[args[0]], args[1] == "on")
         elif command == "/attach" and len(args) == 1:
@@ -605,7 +572,7 @@ class Cockpit:
                 self.console.print("That file is not attached to this session.")
         elif command == "/context":
             self._show_context(
-                self._packet(self.state.last_question or "Analyze the recent output.")
+                self._packet(self.state.last_question or "Analyze selected context.")
             )
         elif command == "/status":
             health = OllamaClient(self.config).check_health()
@@ -654,18 +621,24 @@ class Cockpit:
                 self.console.print("No proposal selected.")
         elif command == "/insert":
             self.console.print(
-                "/insert was retired with the popup cockpit. Use /copy, return with "
-                "Prefix then A, and paste with tmux Prefix then ]."
+                "/insert is unavailable. Use /copy, paste into an ordinary editable shell "
+                "prompt, inspect the exact command, and decide whether to press Enter."
             )
         elif command == "/copy":
             item = self._selected()
             if item and item.assessment.insertion_allowed and item.response.proposed_command:
-                copy_to_buffer(item.response.proposed_command)
-                self._set_disposition(item, "copied")
-                self.console.print(
-                    "Copied to the tmux buffer. Return with Prefix then A and paste with "
-                    "Prefix then ]; the text remains editable and is not executed."
-                )
+                try:
+                    provider = copy_to_clipboard(item.response.proposed_command)
+                except ClipboardError as exc:
+                    self.console.print(
+                        f"Clipboard error: {sanitize_for_display(str(exc))}", style="red"
+                    )
+                else:
+                    self._set_disposition(item, "copied")
+                    self.console.print(
+                        f"Copied with {provider}. Paste into an editable shell prompt and "
+                        "inspect it; SecurityLlama did not type or execute it."
+                    )
             else:
                 self.console.print("No eligible proposal selected.")
         elif command == "/reject":
@@ -704,7 +677,7 @@ class Cockpit:
             self.state.selected = -1
             self.console.print(f"New session: {session_state.session_id}")
         else:
-            self.console.print("Unknown chat command. Use /help.")
+            self.console.print("Unknown console command. Use /help.")
         return True
 
     async def _run_async(self) -> int:
@@ -722,7 +695,7 @@ class Cockpit:
                         )
                     ).strip()
                 except (EOFError, KeyboardInterrupt):
-                    self.console.print("Closing chat.")
+                    self.console.print("Closing console.")
                     return 0
                 if not line:
                     continue

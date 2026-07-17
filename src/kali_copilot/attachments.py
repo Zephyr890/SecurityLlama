@@ -15,7 +15,6 @@ from pydantic import ValidationError
 from kali_copilot.models import AttachmentRef, AttachmentState, RedactionRecord
 from kali_copilot.paths import AppPaths, ensure_private_directory, resolve_paths
 from kali_copilot.sanitize import normalize_text, redact_secrets, strip_terminal_sequences
-from kali_copilot.shell_bridge import write_private_json
 
 
 class AttachmentError(RuntimeError):
@@ -82,7 +81,17 @@ def load_attachment_state(session_id: str, paths: AppPaths | None = None) -> Att
 
 def _write_state(state: AttachmentState, paths: AppPaths) -> None:
     ensure_private_directory(paths.attachments_dir)
-    write_private_json(_state_path(paths, state.session_id), state.model_dump_json())
+    path = _state_path(paths, state.session_id)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        descriptor = os.open(path, flags, 0o600)
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(state.model_dump_json())
+    except OSError as exc:
+        raise AttachmentError(f"cannot write attachment state: {exc}") from exc
 
 
 def attach_file(

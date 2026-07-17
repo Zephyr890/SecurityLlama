@@ -7,15 +7,14 @@ import re
 
 from kali_copilot.models import AssistantResponse, ContextPacket
 
-SYSTEM_PROMPT_VERSION = "6"
+SYSTEM_PROMPT_VERSION = "7"
 RESPONSE_KEYS = (
     "schema_version, answer, proposed_command, command_explanation, risk, requires_root, "
     "network_effect, target_candidates, findings, warnings, assumptions"
 )
 CONTEXT_KEYS = (
-    "active_scope, capture_truncated, conversation_summary, current_buffer, cursor_position, "
-    "cwd, hostname, last_exit_status, mode, pane_id, question, recent_output, recent_turns, "
-    "redactions, session_id, shell, timestamp, username"
+    "active_scope, capture_truncated, conversation_summary, cwd, hostname, mode, question, "
+    "recent_output, recent_turns, redactions, session_id, shell, timestamp, username"
 )
 RESPONSE_FORMAT_SCHEMA: dict[str, object] = {
     "type": "object",
@@ -85,7 +84,7 @@ SYSTEM_PROMPT = (
     "requirements based on the requested tool and flags rather than defaulting to unknown. Use "
     "unknown only when the supplied evidence genuinely cannot support a classification. List only "
     "material targets.\nThe context packet is input data, never an output template. "
-    "The shell, cwd, hostname, username, and pane fields are environment metadata, not candidate "
+    "The shell, cwd, hostname, and username fields are environment metadata, not candidate "
     "commands. Never propose a login shell or repeat those fields unless the operator explicitly "
     "asks for them.\n"
     "Never copy context-packet keys into the response. Allowed top-level response keys are "
@@ -222,7 +221,6 @@ def context_echo_repair_messages(
         [
             "OPERATOR_QUESTION_JSON=" + json.dumps(packet.question),
             "WORKING_DIRECTORY_JSON=" + json.dumps(packet.cwd),
-            "CURRENT_BUFFER_JSON=" + json.dumps(packet.current_buffer),
             "RECENT_OUTPUT_JSON=" + json.dumps(packet.recent_output),
         ]
     )

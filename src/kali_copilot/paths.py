@@ -31,10 +31,6 @@ class AppPaths:
         return self.data_dir / "sessions.db"
 
     @property
-    def proposals_dir(self) -> Path:
-        return self.runtime_dir / "proposals"
-
-    @property
     def attachments_dir(self) -> Path:
         return self.runtime_dir / "attachments"
 

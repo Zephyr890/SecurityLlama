@@ -30,10 +30,9 @@ def make_basic_packet(
     question: str,
     recent_output: str,
     *,
-    current_buffer: str | None = None,
     cwd: str | None = None,
 ) -> ContextPacket:
-    """Construct the non-tmux packet used by Milestone 1 commands."""
+    """Construct a packet from explicit operator input and environment metadata."""
     session_id = current_session().session_id
     shell = Path(os.environ.get("SHELL", "unknown")).name
     return ContextPacket(
@@ -45,7 +44,6 @@ def make_basic_packet(
         username=getpass.getuser(),
         shell=shell,
         cwd=cwd or os.getcwd(),
-        current_buffer=current_buffer,
         recent_output=recent_output,
         capture_truncated=False,
         redactions=[],
@@ -59,24 +57,20 @@ def ask_model(
     mode: str,
     question: str,
     recent_output: str,
-    *,
-    current_buffer: str | None = None,
 ) -> AssistantResponse:
     """Build a context packet and request a validated response."""
     cleaned_output = normalize_text(strip_terminal_sequences(recent_output))
     redacted_output = redact_secrets(cleaned_output)
     redacted_question = redact_secrets(normalize_text(strip_terminal_sequences(question)))
-    redacted_buffer = redact_secrets(normalize_text(strip_terminal_sequences(current_buffer or "")))
     packet = make_basic_packet(
         mode,
         redacted_question.text,
         redacted_output.text,
-        current_buffer=redacted_buffer.text if current_buffer is not None else None,
     )
     paths = resolve_paths()
     scope = active_scope(paths)
     updates: dict[str, object] = {
-        "redactions": redacted_question.records + redacted_output.records + redacted_buffer.records,
+        "redactions": redacted_question.records + redacted_output.records,
         "active_scope": scope.summary() if scope else None,
     }
     if config.audit.enabled and should_include_recent_turns(mode, redacted_output.text):

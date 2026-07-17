@@ -29,7 +29,6 @@ from kali_copilot.paths import AppPaths, ensure_private_directory, resolve_paths
 from kali_copilot.policy import assess_proposal
 from kali_copilot.sanitize import redact_secrets, strip_terminal_sequences
 from kali_copilot.scope import ScopeConfig
-from kali_copilot.tmux import validate_pane_id
 
 MAX_PAYLOAD_BYTES = 2_500_000
 MAX_JOB_BYTES = 2_000_000
@@ -160,7 +159,6 @@ def start_job(
     packet: ContextPacket,
     scope: ScopeConfig | None,
     *,
-    pane_id: str,
     refresh_memory: bool = False,
     paths: AppPaths | None = None,
 ) -> BackgroundJob:
@@ -188,7 +186,6 @@ def start_job(
     job = BackgroundJob(
         job_id=job_id,
         session_id=packet.session_id,
-        pane_id=validate_pane_id(pane_id),
         mode=packet.mode,
         question=packet.question,
         model=config.ollama.model,

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import uuid
@@ -18,13 +17,7 @@ class SessionState:
 
 
 def _state_path(paths: AppPaths) -> Path:
-    tmux_key = os.environ.get("TMUX", "outside-tmux").split(",", 1)[0]
-    suffix = (
-        hashlib.sha256(tmux_key.encode()).hexdigest()[:16]
-        if tmux_key != "outside-tmux"
-        else str(os.getppid())
-    )
-    return paths.runtime_dir / f"session-{suffix}.json"
+    return paths.runtime_dir / "session.json"
 
 
 def new_session(paths: AppPaths | None = None) -> SessionState:

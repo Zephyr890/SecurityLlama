@@ -42,7 +42,6 @@ def _packet() -> ContextPacket:
         username="operator",
         shell="zsh",
         cwd="/assessment",
-        pane_id="%1",
         recent_output="sensitive synthetic terminal evidence",
         capture_truncated=False,
         redactions=[],
@@ -58,7 +57,6 @@ def test_start_job_keeps_raw_context_in_anonymous_pipe(monkeypatch, tmp_path: Pa
         AppConfig(audit=AuditConfig(enabled=False)),
         _packet(),
         None,
-        pane_id="%1",
         paths=paths,
     )
 
@@ -85,7 +83,7 @@ def test_worker_publishes_sanitized_result_and_view_state(monkeypatch, tmp_path:
     paths = _paths(tmp_path)
     config = AppConfig(audit=AuditConfig(enabled=False))
     packet = _packet()
-    job = start_job(config, packet, None, pane_id="%1", paths=paths)
+    job = start_job(config, packet, None, paths=paths)
     payload = json.dumps(
         {
             "config": config.model_dump(mode="json"),

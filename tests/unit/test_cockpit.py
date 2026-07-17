@@ -42,29 +42,34 @@ def test_context_usage_exposes_budget_sources_without_raw_text() -> None:
     usage = context_usage(packet, config)
     assert usage["capacity"] == 4096
     assert usage["reserved_response"] == 512
-    assert usage["terminal_chars"] == len("bounded output")
+    assert usage["context_chars"] == len("bounded output")
     assert usage["memory_turns"] == 1
     assert usage["redactions"] == 2
     assert usage["truncated"] is True
 
 
-def test_chat_refreshes_originating_pane_before_capture(monkeypatch) -> None:
+def test_standalone_console_packet_has_no_implicit_terminal_capture(tmp_path, monkeypatch) -> None:
+    app_paths = AppPaths(
+        tmp_path / "config", tmp_path / "data", tmp_path / "cache", tmp_path / "runtime"
+    )
+    working_directory = tmp_path / "assessment"
+    working_directory.mkdir()
+    monkeypatch.chdir(working_directory)
     cockpit = Cockpit(
         AppConfig(audit=AuditConfig(enabled=False)),
-        "%1",
         console=Console(file=io.StringIO(), force_terminal=False),
     )
-    monkeypatch.setattr(cockpit_module, "current_chat_origin_pane", lambda pane: "%9")
+    cockpit.paths = app_paths
 
-    cockpit._refresh_origin_pane()
+    packet = cockpit._packet("Explain the next verification step")
 
-    assert cockpit.state.pane_id == "%9"
+    assert packet.cwd == str(working_directory)
+    assert packet.recent_output == ""
 
 
 def test_cockpit_prompt_animates_while_background_job_runs() -> None:
     cockpit = Cockpit(
         AppConfig(audit=AuditConfig(enabled=False)),
-        "%1",
         console=Console(file=io.StringIO(), force_terminal=False),
     )
     cockpit._running_jobs["a" * 32] = datetime.now(UTC)
@@ -78,13 +83,11 @@ def test_cockpit_prompt_animates_while_background_job_runs() -> None:
 def test_cockpit_monitor_renders_completed_job_without_reopen(monkeypatch) -> None:
     cockpit = Cockpit(
         AppConfig(audit=AuditConfig(enabled=False)),
-        "%1",
         console=Console(file=io.StringIO(), force_terminal=False),
     )
     completed = BackgroundJob(
         job_id="a" * 32,
         session_id=current_session(cockpit.paths).session_id,
-        pane_id="%1",
         mode="ask",
         question="Finished?",
         model="fixture-model",
@@ -126,7 +129,6 @@ def test_multiple_answers_render_as_ordered_question_answer_cards() -> None:
     output = io.StringIO()
     cockpit = Cockpit(
         AppConfig(audit=AuditConfig(enabled=False)),
-        "%1",
         console=Console(file=output, force_terminal=False, width=120),
     )
     assessment = PolicyAssessment(
@@ -143,7 +145,6 @@ def test_multiple_answers_render_as_ordered_question_answer_cards() -> None:
         return BackgroundJob(
             job_id=job_id * 32,
             session_id="ordered-session",
-            pane_id="%1",
             mode="ask",
             question=question,
             model="fixture-model",
@@ -178,14 +179,12 @@ def test_cockpit_renders_proposed_command_only_once() -> None:
     output = io.StringIO()
     cockpit = Cockpit(
         AppConfig(audit=AuditConfig(enabled=False)),
-        "%1",
         console=Console(file=output, force_terminal=False, width=120),
     )
     now = datetime.now(UTC)
     job = BackgroundJob(
         job_id="c" * 32,
         session_id="session",
-        pane_id="%1",
         mode="suggest",
         question="Suggest one inert check command",
         model="fixture-model",
@@ -218,14 +217,12 @@ def test_cockpit_suppresses_legacy_conceptual_shell_proposal() -> None:
     output = io.StringIO()
     cockpit = Cockpit(
         AppConfig(audit=AuditConfig(enabled=False)),
-        "%1",
         console=Console(file=output, force_terminal=False, width=120),
     )
     now = datetime.now(UTC)
     job = BackgroundJob(
         job_id="d" * 32,
         session_id="session",
-        pane_id="%1",
         mode="ask",
         question="explain the basics of web app fuzzing with burpsuite community",
         model="fixture-model",
@@ -276,9 +273,8 @@ def test_cockpit_packet_keeps_session_attachment_and_omits_raw_persistence(tmp_p
         audit=AuditConfig(enabled=False),
         context=ContextConfig(max_attachment_file_bytes=4096),
     )
-    cockpit = Cockpit(config, "%1")
+    cockpit = Cockpit(config)
     cockpit.paths = app_paths
-    cockpit.state.include_terminal = False
     packet = cockpit._packet("Review the attached result")
     assert "ATTACHMENT_BEGIN" in packet.recent_output
     assert "port 8443 open" in packet.recent_output
@@ -295,12 +291,12 @@ def test_cockpit_attach_survives_reopen_until_detached(tmp_path) -> None:
     source = tmp_path / "scan results.txt"
     source.write_text("service evidence")
     config = AppConfig(audit=AuditConfig(enabled=False))
-    first = Cockpit(config, "%1", console=Console(file=io.StringIO(), force_terminal=False))
+    first = Cockpit(config, console=Console(file=io.StringIO(), force_terminal=False))
     first.paths = app_paths
     assert first._handle(f'/attach "{source}"')
 
     second_output = io.StringIO()
-    reopened = Cockpit(config, "%1", console=Console(file=second_output, force_terminal=False))
+    reopened = Cockpit(config, console=Console(file=second_output, force_terminal=False))
     reopened.paths = app_paths
     assert reopened._handle("/attachments")
     rendered_attachments = " ".join(second_output.getvalue().split())

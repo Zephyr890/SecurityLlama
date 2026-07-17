@@ -4,14 +4,12 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import shlex
 import sys
 from collections.abc import Sequence
-from contextlib import suppress
 
 from kali_copilot import __version__
-from kali_copilot.app import ask_model, make_basic_packet
+from kali_copilot.app import ask_model
 from kali_copilot.audit import AuditStore
 from kali_copilot.config import (
     AppConfig,
@@ -21,27 +19,20 @@ from kali_copilot.config import (
     update_ollama_fields,
     update_tunnel_fields,
 )
-from kali_copilot.context import ContextCollector
 from kali_copilot.doctor import run_doctor
-from kali_copilot.install import install_shell, remove_shell_blocks
-from kali_copilot.models import AssistantResponse, ContextPacket, ShellWidgetResponse
-from kali_copilot.ollama import InvalidModelResponseError, OllamaClient, OllamaError
+from kali_copilot.install import (
+    InstallError,
+    install_desktop,
+    remove_desktop,
+    remove_shell_blocks,
+)
+from kali_copilot.ollama import InvalidModelResponseError, OllamaError
 from kali_copilot.paths import resolve_paths
-from kali_copilot.policy import assess_proposal
-from kali_copilot.proposal import consume_proposal
 from kali_copilot.reporting import json_report, markdown_report
 from kali_copilot.sanitize import redact_secrets, sanitize_for_display
 from kali_copilot.scope import ScopeError, active_scope, initialize_scope, load_scope, use_scope
 from kali_copilot.session import clear_session, current_session
-from kali_copilot.shell_bridge import (
-    ShellBridgeError,
-    create_request,
-    extract_response,
-    read_request,
-    write_response,
-)
-from kali_copilot.tmux import TmuxError, copy_to_buffer, display_message, open_chat_window
-from kali_copilot.ui import render_command_diff, render_response
+from kali_copilot.ui import render_response
 
 
 def _ask_with_default(prompt_text: str, default: str) -> str:
@@ -51,7 +42,7 @@ def _ask_with_default(prompt_text: str, default: str) -> str:
 
 
 def _run_setup() -> int:
-    """Interactively configure Ollama and install shell integration."""
+    """Interactively configure Ollama and install the desktop console launcher."""
     try:
         config = load_config()
     except ConfigError:
@@ -69,8 +60,8 @@ def _run_setup() -> int:
     tunnel_host = _ask_with_default("Mac host-only IP", config.tunnel.ssh_host or "192.168.56.100")
     update_tunnel_fields(ssh_user=tunnel_user, ssh_host=tunnel_host)
     print(f"Configuration saved to {path}")
-    for installed in install_shell():
-        print(f"Installed shell asset: {installed}")
+    installed = install_desktop()
+    print(f"Installed console launcher: {installed}")
     print("\nChecking the setup...")
     checks = run_doctor()
     for check in checks:
@@ -98,21 +89,6 @@ def _tunnel_command(config: AppConfig) -> str:
     return shlex.join(args)
 
 
-def _interactive_chat(config: AppConfig, packet: ContextPacket) -> AssistantResponse:
-    """Show elapsed model progress in interactive popup/widget surfaces."""
-    from rich.console import Console
-
-    from kali_copilot.cockpit import RequestProgress
-
-    with RequestProgress(
-        Console(no_color=config.ui.monochrome), reduced_motion=config.ui.reduced_motion
-    ) as progress:
-        progress.phase(f"waiting for {config.ollama.model}")
-        response = OllamaClient(config).chat(packet)
-        progress.phase("structured response validated")
-        return response
-
-
 def build_parser() -> argparse.ArgumentParser:
     """Build the top-level argument parser."""
     parser = argparse.ArgumentParser(
@@ -131,26 +107,6 @@ def build_parser() -> argparse.ArgumentParser:
     config_init.add_argument("--ollama-url")
     config_init.add_argument("--model")
     config_subparsers.add_parser("show")
-    popup_parser = subparsers.add_parser("popup")
-    popup_parser.add_argument("--pane", required=True)
-    popup_parser.add_argument("--read-only", action="store_true")
-    widget_parser = subparsers.add_parser("shell-widget")
-    widget_parser.add_argument("--request-file", required=True)
-    widget_parser.add_argument("--response-file", required=True)
-    request_parser = subparsers.add_parser("_make-widget-request")
-    request_parser.add_argument("--buffer-file", required=True)
-    request_parser.add_argument("--request-file", required=True)
-    request_parser.add_argument("--shell", required=True)
-    request_parser.add_argument("--cwd", required=True)
-    request_parser.add_argument("--cursor", required=True, type=int)
-    request_parser.add_argument("--pane")
-    request_parser.add_argument("--last-status", type=int)
-    response_parser = subparsers.add_parser("_extract-widget-response")
-    response_parser.add_argument("--response-file", required=True)
-    response_parser.add_argument("--command-file", required=True)
-    consume_parser = subparsers.add_parser("_consume-proposal")
-    consume_parser.add_argument("--pane", required=True)
-    consume_parser.add_argument("--command-file", required=True)
     session_parser = subparsers.add_parser("session")
     session_subparsers = session_parser.add_subparsers(dest="session_command", required=True)
     session_subparsers.add_parser("new")
@@ -169,26 +125,20 @@ def build_parser() -> argparse.ArgumentParser:
     scope_show.add_argument("name", nargs="?")
     history_parser = subparsers.add_parser("history")
     history_parser.add_argument("--limit", type=int, default=20)
-    chat_parser = subparsers.add_parser("chat", help="run the persistent terminal chat")
-    chat_parser.add_argument("--pane")
-    cockpit_parser = subparsers.add_parser("cockpit", help="legacy alias for terminal chat")
-    cockpit_parser.add_argument("--pane", required=True)
-    open_chat_parser = subparsers.add_parser(
-        "_open-chat", help="internal tmux chat-window launcher"
-    )
-    open_chat_parser.add_argument("--pane", required=True)
-    open_chat_parser.add_argument("--cwd", required=True)
-    open_chat_parser.add_argument("--executable", required=True)
+    subparsers.add_parser("console", help="run the standalone interactive terminal console")
+    subparsers.add_parser("chat", help="compatibility alias for console")
     note_parser = subparsers.add_parser("note", help="add a redacted operator note")
     note_parser.add_argument("text")
     note_parser.add_argument("--bookmark", action="store_true")
     report_parser = subparsers.add_parser("report", help="export the current redacted session")
     report_parser.add_argument("--format", choices=("markdown", "json"), default="markdown")
     report_parser.add_argument("--output")
-    subparsers.add_parser("install-shell")
+    subparsers.add_parser("install-desktop")
+    subparsers.add_parser("uninstall-desktop")
+    subparsers.add_parser("install-shell", help="deprecated alias for install-desktop")
     subparsers.add_parser("uninstall-shell")
     subparsers.add_parser("doctor")
-    subparsers.add_parser("setup", help="configure Ollama and install shell integration")
+    subparsers.add_parser("setup", help="configure Ollama and install the console launcher")
     tunnel_parser = subparsers.add_parser("tunnel", help="show the configured Ollama SSH tunnel")
     tunnel_subparsers = tunnel_parser.add_subparsers(dest="tunnel_command", required=True)
     tunnel_subparsers.add_parser("command", help="print the SSH tunnel command")
@@ -258,21 +208,18 @@ def main(argv: Sequence[str] | None = None) -> int:
             else:
                 print(content)
             return 0
-        if args.command == "_open-chat":
-            open_chat_window(pane_id=args.pane, cwd=args.cwd, executable=args.executable)
-            return 0
-        if args.command in {"chat", "cockpit"}:
-            from kali_copilot.cockpit import Cockpit
+        if args.command in {"console", "chat"}:
+            from kali_copilot.console import SecurityLlamaConsole
 
-            pane = args.pane or os.environ.get("TMUX_PANE")
-            if not pane:
-                raise TmuxError("terminal chat requires tmux or an explicit --pane")
-            return Cockpit(load_config(), pane).run()
-        if args.command == "install-shell":
-            for path in install_shell():
-                print(path)
-            print('Reload the current shell with: exec "$SHELL" -l')
-            print("Inside an existing tmux server, then run: tmux source-file ~/.tmux.conf")
+            return SecurityLlamaConsole(load_config()).run()
+        if args.command in {"install-desktop", "install-shell"}:
+            print(install_desktop())
+            if args.command == "install-shell":
+                print("install-shell is retired; installed the standalone console launcher.")
+            print("Launch it from the Kali application menu or run: securityllama console")
+            return 0
+        if args.command == "uninstall-desktop":
+            remove_desktop()
             return 0
         if args.command == "uninstall-shell":
             remove_shell_blocks()
@@ -315,114 +262,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             response = ask_model(config, args.command, question, recent_output)
             render_response(response)
             return 0
-        if args.command == "popup":
-            from prompt_toolkit import prompt
-
-            config = load_config()
-            choice = prompt("Mode [1 ask, 2 explain, 3 review, 4 suggest, q quit]: ").strip()
-            modes = {"1": "ask", "2": "explain", "3": "review", "4": "suggest"}
-            if choice.lower() in {"q", "quit", "\x1b"}:
-                return 0
-            mode = modes.get(choice, "ask")
-            question = prompt("Question: ").strip() or "Analyze the recent output."
-            packet = ContextCollector(config).collect_tmux(args.pane, mode, question)
-            response = _interactive_chat(config, packet)
-            render_response(response)
-            if response.proposed_command and args.read_only:
-                assessment = assess_proposal(response, active_scope(), config.policy)
-                print(assessment.model_dump_json(indent=2))
-                action = prompt("Press c then Enter to copy, or Enter to close: ").strip()
-                if action == "c" and assessment.insertion_allowed:
-                    copy_to_buffer(response.proposed_command)
-                    print("Proposal copied to tmux buffer; it was not typed or executed.")
-                elif action == "c":
-                    print("Copy blocked by local policy: " + "; ".join(assessment.blocked_reasons))
-            return 0
-        if args.command == "_make-widget-request":
-            from pathlib import Path
-
-            create_request(
-                Path(args.buffer_file),
-                Path(args.request_file),
-                shell=args.shell,
-                cwd=args.cwd,
-                cursor=args.cursor,
-                pane=args.pane,
-                last_status=args.last_status,
-            )
-            return 0
-        if args.command == "_extract-widget-response":
-            from pathlib import Path
-
-            print(extract_response(Path(args.response_file), Path(args.command_file)))
-            return 0
-        if args.command == "_consume-proposal":
-            from pathlib import Path
-
-            from kali_copilot.shell_bridge import write_private_json
-
-            paths = resolve_paths()
-            pending = consume_proposal(
-                session_id=current_session(paths).session_id,
-                pane_id=args.pane,
-                paths=paths,
-            )
-            if pending is None:
-                print("none")
-                return 0
-            write_private_json(Path(args.command_file), pending.command)
-            if pending.interaction_id and load_config().audit.enabled:
-                with AuditStore(paths.database_file) as store:
-                    store.update_disposition(pending.interaction_id, "inserted")
-            print("insert")
-            return 0
-        if args.command == "shell-widget":
-            from pathlib import Path
-
-            from prompt_toolkit import prompt
-
-            request = read_request(Path(args.request_file))
-            config = load_config()
-            redacted_buffer = redact_secrets(sanitize_for_display(request.buffer))
-            question = (
-                prompt("Review question: ").strip() or "Review this command before execution."
-            )
-            packet = make_basic_packet(
-                request.mode_hint or "review",
-                question,
-                "",
-                current_buffer=redacted_buffer.text,
-                cwd=request.cwd,
-            ).model_copy(
-                update={
-                    "pane_id": request.tmux_pane,
-                    "cursor_position": request.cursor_position,
-                    "last_exit_status": request.last_exit_status,
-                    "redactions": redacted_buffer.records,
-                }
-            )
-            response = _interactive_chat(config, packet)
-            render_response(response)
-            widget_result = ShellWidgetResponse(action="none", message="No proposal selected.")
-            if response.proposed_command:
-                assessment = assess_proposal(response, active_scope(), config.policy)
-                print(assessment.model_dump_json(indent=2))
-                render_command_diff(request.buffer, response.proposed_command)
-                expected = "INSERT" if assessment.confirmation_required else "i"
-                confirmation = prompt(
-                    f"Type {expected} to place this command at the prompt: "
-                ).strip()
-                if confirmation == expected and assessment.insertion_allowed:
-                    widget_result = ShellWidgetResponse(
-                        action="insert", command=response.proposed_command
-                    )
-                elif not assessment.insertion_allowed:
-                    widget_result = ShellWidgetResponse(
-                        action="none",
-                        message="Insertion blocked: " + "; ".join(assessment.blocked_reasons),
-                    )
-            write_response(Path(args.response_file), widget_result)
-            return 0
         build_parser().print_help()
         return 0
     except ConfigError as exc:
@@ -433,13 +272,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if getattr(args, "debug", False) and isinstance(exc, InvalidModelResponseError):
             print(exc.debug_report(), file=sys.stderr)
         return exc.exit_code
-    except TmuxError as exc:
-        if getattr(args, "command", None) == "_open-chat":
-            with suppress(TmuxError):
-                display_message(f"SecurityLlama chat failed: {exc}")
-        print(str(exc), file=sys.stderr)
-        return 6
-    except ShellBridgeError as exc:
+    except InstallError as exc:
         print(str(exc), file=sys.stderr)
         return 6
     except ScopeError as exc:
