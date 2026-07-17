@@ -296,6 +296,7 @@ def test_cockpit_attach_survives_reopen_until_detached(tmp_path) -> None:
     reopened = Cockpit(config, "%1", console=Console(file=second_output, force_terminal=False))
     reopened.paths = app_paths
     assert reopened._handle("/attachments")
-    assert "scan results.txt" in second_output.getvalue()
+    rendered_attachments = " ".join(second_output.getvalue().split())
+    assert "scan results.txt" in rendered_attachments
     assert reopened._handle("/detach all")
     assert load_attachment_state(current_session(app_paths).session_id, app_paths).attachments == []
