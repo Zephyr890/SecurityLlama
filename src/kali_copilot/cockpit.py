@@ -2,16 +2,20 @@
 
 from __future__ import annotations
 
+import asyncio
 import difflib
 import shlex
 import sys
+from contextlib import suppress
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from threading import Event, Lock, Thread
 from time import monotonic
 from types import TracebackType
 
-from prompt_toolkit import prompt
+from prompt_toolkit import PromptSession
+from prompt_toolkit.application import run_in_terminal
 from prompt_toolkit.key_binding import KeyBindings, KeyPressEvent
 from rich.console import Console
 from rich.panel import Panel
@@ -80,8 +84,9 @@ HELP = """Cockpit commands
 
 Alt-Q (or Esc then Q), Ctrl-G, and Ctrl-D at an empty prompt also close the
 cockpit. Submitted requests continue in a detached process and appear when the
-cockpit is reopened. No command is executed by the cockpit. Alt-I in the
-originating shell retrieves staged text.
+cockpit is reopened, or render automatically if it remains open. The live
+prompt animates while requests are running. No command is executed by the
+cockpit. Alt-I in the originating shell retrieves staged text.
 """
 
 
@@ -217,6 +222,7 @@ class Cockpit:
         self._last_attachments = AttachmentBundle("", [], [], False, 0)
         self._last_terminal_chars = 0
         self._loaded_job_ids: set[str] = set()
+        self._running_jobs: dict[str, datetime] = {}
 
     @property
     def config(self) -> AppConfig:
@@ -362,8 +368,10 @@ class Cockpit:
                 )
             self.console.print(
                 f"Request {job.job_id[:8]} is running in the background. "
-                "Close with Alt-Q and reopen later, or use /last to check it."
+                "Its answer will appear here automatically; close with Alt-Q and reopen later "
+                "if you prefer to continue testing."
             )
+            self._running_jobs[job.job_id] = job.created_at
         except KeyboardInterrupt:
             self.console.print(
                 "Submission cancelled before a background request started.", style="yellow"
@@ -421,6 +429,9 @@ class Cockpit:
     def _restore_background_results(self) -> None:
         session_id = current_session(self.paths).session_id
         jobs = list_jobs(session_id, self.paths)
+        self._running_jobs = {
+            job.job_id: job.created_at for job in jobs if job.status in {"starting", "running"}
+        }
         unseen = [job for job in reversed(jobs) if job.viewed_at is None]
         for job in unseen:
             self._render_job(job)
@@ -429,6 +440,42 @@ class Cockpit:
             self.console.print(
                 f"{running} background request(s) still running. Use /last to refresh.", style="dim"
             )
+
+    def _prompt_message(self) -> str:
+        if not self._running_jobs:
+            return "securityllama> "
+        count = len(self._running_jobs)
+        oldest = min(self._running_jobs.values())
+        elapsed = max(0.0, (datetime.now(UTC) - oldest).total_seconds())
+        if self.config.ui.reduced_motion:
+            indicator = "working"
+        else:
+            frames = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+            indicator = frames[int(monotonic() * 10) % len(frames)]
+        noun = "request" if count == 1 else "requests"
+        return f"securityllama {indicator} {count} {noun} · {elapsed:.1f}s> "
+
+    async def _monitor_background(self) -> None:
+        """Poll private job state and render terminal results above the live prompt."""
+        while True:
+            await asyncio.sleep(0.2)
+            jobs = list_jobs(current_session(self.paths).session_id, self.paths)
+            self._running_jobs = {
+                job.job_id: job.created_at for job in jobs if job.status in {"starting", "running"}
+            }
+            ready = [
+                job
+                for job in reversed(jobs)
+                if job.status in {"completed", "failed"}
+                and job.viewed_at is None
+                and job.job_id not in self._loaded_job_ids
+            ]
+            for job in ready:
+
+                def render_result(result: BackgroundJob = job) -> None:
+                    self._render_job(result)
+
+                await run_in_terminal(render_result)
 
     def _show_jobs(self) -> None:
         jobs = list_jobs(current_session(self.paths).session_id, self.paths)
@@ -635,24 +682,41 @@ class Cockpit:
             self.console.print("Unknown cockpit command. Use /help.")
         return True
 
-    def run(self) -> int:
+    async def _run_async(self) -> int:
         self._header()
         self._restore_background_results()
-        while True:
-            try:
-                line = prompt("securityllama> ", key_bindings=COCKPIT_KEY_BINDINGS).strip()
-            except (EOFError, KeyboardInterrupt):
-                self.console.print("Closing cockpit.")
-                return 0
-            if not line:
-                continue
-            if line.startswith("/"):
+        session: PromptSession[str] = PromptSession()
+        monitor = asyncio.create_task(self._monitor_background())
+        try:
+            while True:
                 try:
-                    if not self._handle(line):
-                        return 0
-                except AttachmentError as exc:
-                    self.console.print(
-                        f"Attachment error: {sanitize_for_display(str(exc))}", style="red"
-                    )
-            else:
-                self._ask(line)
+                    line = (
+                        await session.prompt_async(
+                            self._prompt_message,
+                            key_bindings=COCKPIT_KEY_BINDINGS,
+                            refresh_interval=0.1,
+                        )
+                    ).strip()
+                except (EOFError, KeyboardInterrupt):
+                    self.console.print("Closing cockpit.")
+                    return 0
+                if not line:
+                    continue
+                if line.startswith("/"):
+                    try:
+                        if not self._handle(line):
+                            return 0
+                    except AttachmentError as exc:
+                        self.console.print(
+                            f"Attachment error: {sanitize_for_display(str(exc))}", style="red"
+                        )
+                else:
+                    self._ask(line)
+        finally:
+            monitor.cancel()
+            with suppress(asyncio.CancelledError):
+                await monitor
+
+    def run(self) -> int:
+        """Run the interactive cockpit and its live background-result monitor."""
+        return asyncio.run(self._run_async())

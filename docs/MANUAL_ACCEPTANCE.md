@@ -19,6 +19,8 @@ until run in the project's VirtualBox Kali VM.
    Reopen the cockpit and verify Alt-Q closes it from the idle cockpit prompt.
    Repeat with Esc then Q, Ctrl-G, `/q`, `/quit`, and Ctrl-D on an empty prompt.
    Submit a model request and verify the cockpit prompt returns immediately.
+   Leave the cockpit open once and verify its prompt animates with elapsed time,
+   remains editable, and renders the completed answer without `/last`.
    Close the popup, continue using the originating shell, wait for generation,
    and reopen the cockpit. Verify the unseen answer appears, `/jobs` reports it
    completed, `/last` redisplays it, and no command was typed or executed.

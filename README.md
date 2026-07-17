@@ -62,8 +62,9 @@ operator must still press Enter. Prefix then A or Alt-Q opens the persistent,
 multi-turn tmux cockpit for the originating pane. The cockpit keeps assistant
 conversation separate from assessment commands and shell history.
 
-The cockpit shows background request status, model/profile/session status,
-validated responses, and an estimated context-window budget. Use `/context` to
+The cockpit shows an animated request indicator in its prompt, background request
+status, model/profile/session status, validated responses, and an estimated
+context-window budget. Use `/context` to
 inspect included sources and `/include terminal|memory|scope on|off` to control
 the next request. Token counts are estimates because exact tokenization is
 model-specific. Captured text remains bounded, sanitized, redacted, and omitted
@@ -137,6 +138,11 @@ shell. Reopening the same logical session displays unseen completed answers and
 restores policy-checked proposals. `/last` refreshes the newest request and
 `/jobs` lists up to 20 recent requests. Starting `/new` moves to a new logical
 session, so earlier results remain associated with the old session.
+
+If the cockpit stays open, its prompt animates with the active request count and
+elapsed time. Completed answers render automatically above the editable prompt;
+the operator can keep typing while generation runs. Reduced-motion mode uses a
+static working indicator instead of animated frames.
 
 Raw terminal and attachment context crosses to the detached worker through an
 anonymous pipe and is not written to background job state. Private `0600`

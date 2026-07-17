@@ -1,14 +1,24 @@
 from __future__ import annotations
 
+import asyncio
 import io
+from contextlib import suppress
 from datetime import UTC, datetime
 
 from rich.console import Console
 
+import kali_copilot.cockpit as cockpit_module
 from kali_copilot.attachments import attach_file, load_attachment_state
 from kali_copilot.cockpit import COCKPIT_KEY_BINDINGS, Cockpit, context_usage
 from kali_copilot.config import AppConfig, AuditConfig, ContextConfig, OllamaConfig
-from kali_copilot.models import ContextPacket, ConversationTurn, RedactionRecord
+from kali_copilot.models import (
+    AssistantResponse,
+    BackgroundJob,
+    ContextPacket,
+    ConversationTurn,
+    PolicyAssessment,
+    RedactionRecord,
+)
 from kali_copilot.paths import AppPaths
 from kali_copilot.session import current_session
 
@@ -42,6 +52,67 @@ def test_cockpit_has_meta_q_and_control_g_close_bindings() -> None:
     keys = {tuple(str(key) for key in binding.keys) for binding in COCKPIT_KEY_BINDINGS.bindings}
     assert ("Keys.Escape", "q") in keys
     assert ("Keys.ControlG",) in keys
+
+
+def test_cockpit_prompt_animates_while_background_job_runs() -> None:
+    cockpit = Cockpit(
+        AppConfig(audit=AuditConfig(enabled=False)),
+        "%1",
+        console=Console(file=io.StringIO(), force_terminal=False),
+    )
+    cockpit._running_jobs["a" * 32] = datetime.now(UTC)
+
+    message = cockpit._prompt_message()
+
+    assert "1 request" in message
+    assert "s> " in message
+
+
+def test_cockpit_monitor_renders_completed_job_without_reopen(monkeypatch) -> None:
+    cockpit = Cockpit(
+        AppConfig(audit=AuditConfig(enabled=False)),
+        "%1",
+        console=Console(file=io.StringIO(), force_terminal=False),
+    )
+    completed = BackgroundJob(
+        job_id="a" * 32,
+        session_id=current_session(cockpit.paths).session_id,
+        pane_id="%1",
+        mode="ask",
+        question="Finished?",
+        model="fixture-model",
+        status="completed",
+        pid=123,
+        created_at=datetime.now(UTC),
+        finished_at=datetime.now(UTC),
+        response=AssistantResponse(answer="Finished."),
+        assessment=PolicyAssessment(
+            scope_status="not_applicable",
+            risk_status="none",
+            explicit_targets=[],
+            blocked_reasons=["no proposed command"],
+            confirmation_required=False,
+            insertion_allowed=False,
+        ),
+    )
+    rendered: list[str] = []
+    monkeypatch.setattr(cockpit_module, "list_jobs", lambda session_id, paths: [completed])
+    monkeypatch.setattr(cockpit, "_render_job", lambda job: rendered.append(job.job_id))
+
+    async def run_in_place(callback):
+        callback()
+
+    monkeypatch.setattr(cockpit_module, "run_in_terminal", run_in_place)
+
+    async def exercise_monitor() -> None:
+        task = asyncio.create_task(cockpit._monitor_background())
+        await asyncio.sleep(0.25)
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
+
+    asyncio.run(exercise_monitor())
+    assert rendered == [completed.job_id]
 
 
 def test_cockpit_packet_keeps_session_attachment_and_omits_raw_persistence(tmp_path) -> None:
